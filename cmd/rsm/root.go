@@ -21,8 +21,6 @@ var rootCmd = &cobra.Command{
 
 Each instance is a separate server installation that can have multiple
 named configurations (config.json + profile directory pairs).`,
-	// When called with no subcommand, print a guided getting-started message
-	// instead of the bare usage block.
 	RunE: runRoot,
 }
 
@@ -41,95 +39,252 @@ func Execute() {
 	}
 }
 
-func runRoot(cmd *cobra.Command, _ []string) error {
-	instances, _ := instance.List()
-
+func runRoot(_ *cobra.Command, _ []string) error {
 	fmt.Println(color.HiCyanString("rsm") + " — Reforger Server Manager " + color.HiBlackString("("+version+")"))
 	fmt.Println()
 
-	if len(instances) == 0 {
-		// First-run experience
-		fmt.Println(color.HiWhiteString("Getting started"))
-		fmt.Println()
-		fmt.Println("  No server instances found. Create your first one:")
-		fmt.Println()
-		fmt.Println("  " + color.HiCyanString("rsm init") + "   — guided setup wizard")
-		fmt.Println()
-		fmt.Println(color.HiBlackString("  The wizard will walk you through:"))
-		fmt.Println(color.HiBlackString("    1. Naming the instance and choosing an install directory"))
-		fmt.Println(color.HiBlackString("    2. Generating a server configuration"))
-		fmt.Println(color.HiBlackString("    3. Downloading the server via steamcmd"))
-		fmt.Println(color.HiBlackString("    4. Setting up autostart and launching"))
-	} else {
-		// Returning user — show instance table and common commands
-		fmt.Println(color.HiWhiteString("Instances"))
-		fmt.Println()
-		printInstanceSummary(instances)
-		fmt.Println()
-		fmt.Println(color.HiWhiteString("Common commands"))
-		fmt.Println()
-		fmt.Println("  " + color.HiCyanString("rsm start") + "                     — start the server")
-		fmt.Println("  " + color.HiCyanString("rsm stop") + "                      — stop the server")
-		fmt.Println("  " + color.HiCyanString("rsm restart") + "                   — restart the server")
-		fmt.Println("  " + color.HiCyanString("rsm logs -f") + "                   — follow live logs")
-		fmt.Println("  " + color.HiCyanString("rsm status") + "                    — show status")
-		fmt.Println("  " + color.HiCyanString("rsm config use <name>") + "         — switch active configuration")
-		fmt.Println("  " + color.HiCyanString("rsm init") + "                      — set up another instance")
-		fmt.Println()
-		fmt.Println(color.HiBlackString("  Run 'rsm <command> --help' for details on any command."))
+	// If CWD is inside an instance, show a focused view of that instance.
+	if inst, ok := instance.LoadFromCWD(); ok {
+		return printInstanceView(inst)
 	}
+
+	// Otherwise show the global registry list (or getting-started).
+	names, _ := instance.List()
+	if len(names) == 0 {
+		return printGettingStarted()
+	}
+	return printRegistryView(names)
+}
+
+// printGettingStarted is shown when no instances are registered anywhere.
+func printGettingStarted() error {
+	fmt.Println(color.HiWhiteString("Getting started"))
+	fmt.Println()
+	fmt.Println("  No server instances found. Create your first one:")
+	fmt.Println()
+	fmt.Println("  " + color.HiCyanString("rsm init") + "   — guided setup wizard")
+	fmt.Println()
+	fmt.Println(color.HiBlackString("  The wizard will walk you through:"))
+	fmt.Println(color.HiBlackString("    1. Naming the instance and choosing an install directory"))
+	fmt.Println(color.HiBlackString("    2. Generating a server configuration"))
+	fmt.Println(color.HiBlackString("    3. Downloading the server via steamcmd"))
+	fmt.Println(color.HiBlackString("    4. Setting up autostart and launching"))
 	fmt.Println()
 	return nil
+}
+
+// printRegistryView is shown when outside any instance directory.
+func printRegistryView(names []string) error {
+	fmt.Println(color.HiWhiteString("Instances"))
+	fmt.Println()
+	printInstanceSummary(names)
+	fmt.Println()
+	fmt.Println(color.HiWhiteString("Common commands"))
+	fmt.Println()
+	printCommonCommands(false)
+	fmt.Println()
+	fmt.Println(color.HiBlackString("  Run 'rsm <command> --help' for details on any command."))
+	fmt.Println()
+	return nil
+}
+
+// printInstanceView is shown when the CWD is inside a known instance directory.
+func printInstanceView(inst *instance.Instance) error {
+	// ── Instance status row ──────────────────────────────────────────────────
+	status := "stopped"
+	if systemd.IsActive(inst) {
+		status = "running"
+	}
+	autostart := "off"
+	if systemd.IsEnabled(inst) {
+		autostart = "on"
+	}
+	activeCfg := inst.ActiveConfig
+	if activeCfg == "" {
+		activeCfg = "(no config)"
+	}
+
+	fmt.Println(color.HiWhiteString("Instance"))
+	fmt.Println()
+
+	// Single-row instance table
+	{
+		namePlain, cfgPlain, statusPlain, autostartPlain :=
+			inst.Name, activeCfg, status, autostart
+
+		w0 := max(len("NAME"), len(namePlain))
+		w1 := max(len("CONFIG"), len(cfgPlain))
+		w2 := max(len("STATUS"), len(statusPlain))
+		w3 := max(len("AUTOSTART"), len(autostartPlain))
+		gap := 3
+
+		header := fmt.Sprintf("  %-*s%-*s%-*s%-*s",
+			w0+gap, "NAME", w1+gap, "CONFIG", w2+gap, "STATUS", w3, "AUTOSTART")
+		fmt.Println(color.HiWhiteString(header))
+		fmt.Println("  " + strings.Repeat("-", w0+w1+w2+w3+gap*3))
+
+		statusStr := color.RedString(statusPlain)
+		if status == "running" {
+			statusStr = color.GreenString(statusPlain)
+		}
+		autostartStr := color.RedString(autostartPlain)
+		if autostart == "on" {
+			autostartStr = color.GreenString(autostartPlain)
+		}
+		nameStr := color.HiCyanString(namePlain)
+
+		fmt.Printf("  %-*s%-*s%-*s%s\n",
+			w0+gap+len(nameStr)-len(namePlain), nameStr,
+			w1+gap, cfgPlain,
+			w2+gap+len(statusStr)-len(statusPlain), statusStr,
+			autostartStr,
+		)
+	}
+
+	fmt.Println()
+
+	// ── Configurations table ─────────────────────────────────────────────────
+	configs, _ := inst.ListConfigs()
+	if len(configs) == 0 {
+		fmt.Println(color.HiWhiteString("Configurations"))
+		fmt.Println()
+		fmt.Println("  (none — run 'rsm config new' to create one)")
+		fmt.Println()
+	} else {
+		fmt.Println(color.HiWhiteString("Configurations"))
+		fmt.Println()
+		printConfigsTable(inst, configs)
+		fmt.Println()
+	}
+
+	// ── Common commands ──────────────────────────────────────────────────────
+	fmt.Println(color.HiWhiteString("Common commands"))
+	fmt.Println()
+	printCommonCommands(true)
+	fmt.Println()
+	fmt.Println(color.HiBlackString("  Run 'rsm <command> --help' for details on any command."))
+	fmt.Println()
+	return nil
+}
+
+// printConfigsTable renders the configuration list for an instance.
+func printConfigsTable(inst *instance.Instance, configs []string) {
+	type row struct{ name, status, path string }
+	rows := make([]row, 0, len(configs))
+	for _, name := range configs {
+		status := ""
+		if name == inst.ActiveConfig {
+			status = "active"
+		}
+		rows = append(rows, row{name, status, inst.ConfigJSONPath(name)})
+	}
+
+	w0, w1 := len("NAME"), len("STATUS")
+	for _, r := range rows {
+		if len(r.name) > w0 {
+			w0 = len(r.name)
+		}
+		if len(r.status) > w1 {
+			w1 = len(r.status)
+		}
+	}
+	gap := 3
+	header := fmt.Sprintf("  %-*s%-*s%s", w0+gap, "NAME", w1+gap, "STATUS", "CONFIG PATH")
+	fmt.Println(color.HiWhiteString(header))
+	fmt.Println("  " + strings.Repeat("-", w0+w1+gap*2+20))
+	for _, r := range rows {
+		nameStr := color.HiCyanString(r.name)
+		statusStr := r.status
+		if r.status == "active" {
+			statusStr = color.GreenString(r.status)
+		}
+		fmt.Printf("  %-*s%-*s%s\n",
+			w0+gap+len(nameStr)-len(r.name), nameStr,
+			w1+gap+len(statusStr)-len(r.status), statusStr,
+			r.path,
+		)
+	}
+}
+
+// printCommonCommands prints the quick-reference command list.
+// inInstance=true adds instance-specific commands (config new, enable, etc.).
+func printCommonCommands(inInstance bool) {
+	type entry struct{ cmd, desc string }
+	cmds := []entry{
+		{"rsm start", "start the server"},
+		{"rsm stop", "stop the server"},
+		{"rsm restart", "restart the server"},
+		{"rsm logs -f", "follow live logs"},
+		{"rsm status", "show detailed status"},
+	}
+	if inInstance {
+		cmds = append(cmds,
+			entry{"rsm config new", "create a new configuration"},
+			entry{"rsm config use <name>", "switch active configuration"},
+			entry{"rsm config edit", "edit active config.json in $EDITOR"},
+			entry{"rsm enable", "enable autostart on boot"},
+			entry{"rsm update", "schedule a server update"},
+		)
+	} else {
+		cmds = append(cmds,
+			entry{"rsm config use <name>", "switch active configuration"},
+			entry{"rsm init", "set up another instance"},
+		)
+	}
+
+	// Compute padding from the longest command string
+	maxLen := 0
+	for _, e := range cmds {
+		if len(e.cmd) > maxLen {
+			maxLen = len(e.cmd)
+		}
+	}
+	for _, e := range cmds {
+		cmdStr := color.HiCyanString(e.cmd)
+		// Compensate for ANSI bytes in cmdStr when computing padding
+		pad := maxLen - len(e.cmd) + 4
+		fmt.Printf("  %s%s— %s\n", cmdStr, strings.Repeat(" ", pad), e.desc)
+	}
 }
 
 func init() {
 	rootCmd.AddCommand(versionCmd)
 }
 
-// printSuccess prints a green success message.
+// ── print helpers ────────────────────────────────────────────────────────────
+
 func printSuccess(format string, args ...interface{}) {
 	fmt.Println(color.GreenString("✓ "+format, args...))
 }
 
-// printInfo prints a cyan info message.
 func printInfo(format string, args ...interface{}) {
 	fmt.Println(color.CyanString("→ "+format, args...))
 }
 
-// printWarning prints a yellow warning message.
 func printWarning(format string, args ...interface{}) {
 	fmt.Println(color.YellowString("! "+format, args...))
 }
 
-// printError prints a red error message.
 func printError(format string, args ...interface{}) {
 	fmt.Fprintln(os.Stderr, color.RedString("✗ "+format, args...))
 }
 
-// fatal prints an error and exits.
 func fatal(format string, args ...interface{}) {
 	printError(format, args...)
 	os.Exit(1)
 }
 
-// printNextStep prints a "what to do next" hint after a user declines a step.
 func printNextStep(message, command string) {
 	fmt.Println(color.HiWhiteString(message))
 	fmt.Println("  " + color.HiCyanString(command))
 	fmt.Println()
 }
 
-// printInstanceSummary renders a compact instance table for the root command output.
-// tabwriter cannot handle ANSI codes (they inflate column widths), so we
-// compute column widths from plain strings and pad manually before colorising.
+// printInstanceSummary renders the compact instance table used by printRegistryView.
 func printInstanceSummary(names []string) {
 	type row struct {
-		name      string
-		cfg       string
-		status    string
-		autostart string
+		name, cfg, status, autostart string
 	}
-
 	rows := make([]row, 0, len(names))
 	for _, name := range names {
 		inst, err := instance.Load(name)
@@ -149,10 +304,9 @@ func printInstanceSummary(names []string) {
 		if systemd.IsEnabled(inst) {
 			autostart = "on"
 		}
-		rows = append(rows, row{name, cfg, status, autostart})
+		rows = append(rows, row{inst.Name, cfg, status, autostart})
 	}
 
-	// Compute column widths from plain text
 	w0, w1, w2, w3 := len("NAME"), len("CONFIG"), len("STATUS"), len("AUTOSTART")
 	for _, r := range rows {
 		if len(r.name) > w0 {
@@ -186,12 +340,18 @@ func printInstanceSummary(names []string) {
 		}
 		nameStr := color.HiCyanString(r.name)
 		fmt.Printf("  %-*s%-*s%-*s%s\n",
-			// Plain-text widths + gap give correct visual spacing even after
-			// the adjacent colorised strings are expanded with ANSI codes.
 			w0+gap+len(nameStr)-len(r.name), nameStr,
 			w1+gap, r.cfg,
 			w2+gap+len(statusStr)-len(r.status), statusStr,
 			autostartStr,
 		)
 	}
+}
+
+// max returns the larger of two ints.
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

@@ -87,6 +87,21 @@ func ResolveInstance(name string) (string, error) {
 	return "", fmt.Errorf("multiple instances exist; specify one with --instance <name>")
 }
 
+// LoadFromCWD attempts to load the instance whose install directory contains
+// or is an ancestor of the current working directory.
+// Returns (inst, true) if found, (nil, false) if not inside any known instance.
+func LoadFromCWD() (*Instance, bool) {
+	name, err := resolveFromCWD()
+	if err != nil || name == "" {
+		return nil, false
+	}
+	inst, err := Load(name)
+	if err != nil {
+		return nil, false
+	}
+	return inst, true
+}
+
 // resolveFromCWD returns the instance name if the CWD (or a parent) contains rsm.yaml,
 // or if the CWD is inside a registered instance's install_dir.
 func resolveFromCWD() (string, error) {
