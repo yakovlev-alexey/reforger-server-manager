@@ -57,12 +57,12 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		fmt.Println()
 		fmt.Println("  No server instances found. Create your first one:")
 		fmt.Println()
-		fmt.Println("  " + color.HiCyanString("rsm instance new") + "   — guided setup wizard")
+		fmt.Println("  " + color.HiCyanString("rsm init") + "   — guided setup wizard")
 		fmt.Println()
 		fmt.Println(color.HiBlackString("  The wizard will walk you through:"))
 		fmt.Println(color.HiBlackString("    1. Naming the instance and choosing an install directory"))
-		fmt.Println(color.HiBlackString("    2. Downloading the server via steamcmd"))
-		fmt.Println(color.HiBlackString("    3. Generating a server configuration"))
+		fmt.Println(color.HiBlackString("    2. Generating a server configuration"))
+		fmt.Println(color.HiBlackString("    3. Downloading the server via steamcmd"))
 		fmt.Println(color.HiBlackString("    4. Setting up autostart and launching"))
 	} else {
 		// Returning user — show instance table and common commands
@@ -78,7 +78,7 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 		fmt.Println("  " + color.HiCyanString("rsm logs -f") + "                   — follow live logs")
 		fmt.Println("  " + color.HiCyanString("rsm status") + "                    — show status")
 		fmt.Println("  " + color.HiCyanString("rsm config use <name>") + "         — switch active configuration")
-		fmt.Println("  " + color.HiCyanString("rsm instance new") + "              — create another instance")
+		fmt.Println("  " + color.HiCyanString("rsm init") + "                      — set up another instance")
 		fmt.Println()
 		fmt.Println(color.HiBlackString("  Run 'rsm <command> --help' for details on any command."))
 	}

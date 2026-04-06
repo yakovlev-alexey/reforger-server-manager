@@ -25,8 +25,8 @@ var initCmd = &cobra.Command{
 
 Walks through:
   1. Instance name and install directory
-  2. Downloading server files via steamcmd
-  3. Generating a server configuration
+  2. Generating a server configuration
+  3. Downloading server files via steamcmd
   4. Installing a systemd service unit
   5. Enabling autostart and starting the server`,
 	Args: cobra.MaximumNArgs(1),
@@ -156,6 +156,33 @@ func runInstanceNew(nameArg string) error {
 	}
 	printSuccess("Instance %q created.", inst.Name)
 
+	// ── Step: create first configuration ────────────────────────────────────
+	// Config is asked before install because it's fast (just questions) and
+	// gives the user something productive to do before the slow download.
+	fmt.Println()
+	doConfig := false
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Configure the server now?",
+		Default: true,
+		Help:    "Sets up config.json (server name, ports, scenario, passwords, etc.)",
+	}, &doConfig); err != nil {
+		return err
+	}
+
+	if doConfig {
+		fmt.Println()
+		if err := createConfigWizard(inst, ""); err != nil {
+			return err
+		}
+		if updated, err := instance.Load(inst.Name); err == nil {
+			inst = updated
+		}
+	} else {
+		fmt.Println()
+		printNextStep("When ready to configure, run:", fmt.Sprintf("rsm config new -i %s", inst.Name))
+		return nil
+	}
+
 	// ── Step: install server files ──────────────────────────────────────────
 	fmt.Println()
 	cfg, err := config.LoadGlobal()
@@ -167,6 +194,7 @@ func runInstanceNew(nameArg string) error {
 	if err := survey.AskOne(&survey.Confirm{
 		Message: fmt.Sprintf("Download and install server files into %s now?", installDir),
 		Default: true,
+		Help:    "Runs steamcmd to download the Arma Reforger dedicated server. This may take a while.",
 	}, &doInstall); err != nil {
 		return err
 	}
@@ -188,31 +216,6 @@ func runInstanceNew(nameArg string) error {
 	} else {
 		fmt.Println()
 		printNextStep("When ready to install the server, run:", fmt.Sprintf("rsm install -i %s", inst.Name))
-		return nil
-	}
-
-	// ── Step: create first configuration ────────────────────────────────────
-	fmt.Println()
-	doConfig := false
-	if err := survey.AskOne(&survey.Confirm{
-		Message: "Create the first server configuration now?",
-		Default: true,
-		Help:    "Sets up config.json (server name, ports, scenario, passwords, etc.)",
-	}, &doConfig); err != nil {
-		return err
-	}
-
-	if doConfig {
-		fmt.Println()
-		if err := createConfigWizard(inst, ""); err != nil {
-			return err
-		}
-		if updated, err := instance.Load(inst.Name); err == nil {
-			inst = updated
-		}
-	} else {
-		fmt.Println()
-		printNextStep("When ready to configure, run:", fmt.Sprintf("rsm config new -i %s", inst.Name))
 		return nil
 	}
 

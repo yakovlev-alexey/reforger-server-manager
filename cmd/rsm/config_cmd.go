@@ -80,30 +80,103 @@ func runConfigNew(_ *cobra.Command, args []string) error {
 	return createConfigWizard(inst, configName)
 }
 
-// createConfigWizard runs the interactive wizard to create a new named configuration.
+// createConfigWizard creates a new named configuration.
+//
+// First config (no active config): runs the full interactive wizard.
+// Additional configs (active config exists): clones the active config.json,
+// notifies the user of what was copied, and offers to open in editor.
 func createConfigWizard(inst *instance.Instance, configName string) error {
 	fmt.Println(color.CyanString("=== New Server Configuration ==="))
 	fmt.Println()
 
-	// Config name
+	// Resolve the config name
 	if configName == "" {
+		defaultName := "default"
+		if inst.ActiveConfig != "" {
+			defaultName = inst.ActiveConfig + "-copy"
+		}
 		if err := survey.AskOne(&survey.Input{
 			Message: "Configuration name:",
-			Default: "default",
+			Default: defaultName,
 			Help:    "A short name like 'vanilla', 'modded', 'coop'",
 		}, &configName, survey.WithValidator(survey.Required)); err != nil {
 			return err
 		}
 	}
 
-	// Check for conflict
+	// Reject duplicates
 	existingConfigs, _ := inst.ListConfigs()
 	for _, existing := range existingConfigs {
 		if existing == configName {
-			return fmt.Errorf("configuration %q already exists in instance %q", configName, inst.Name)
+			return fmt.Errorf("configuration %q already exists", configName)
 		}
 	}
 
+	// Branch: clone vs full wizard
+	if inst.ActiveConfig != "" {
+		return cloneConfig(inst, inst.ActiveConfig, configName)
+	}
+	return configFullWizard(inst, configName)
+}
+
+// cloneConfig copies an existing configuration's config.json to a new name
+// and offers to open it in the editor.
+func cloneConfig(inst *instance.Instance, sourceName, newName string) error {
+	sourcePath := inst.ConfigJSONPath(sourceName)
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return fmt.Errorf("reading source config %q: %w", sourceName, err)
+	}
+
+	// Parse so we can report what was copied
+	var sourceCfg rsmconfig.ServerConfig
+	if err := json.Unmarshal(data, &sourceCfg); err != nil {
+		return fmt.Errorf("parsing source config: %w", err)
+	}
+
+	if err := instance.EnsureConfigDirs(inst, newName); err != nil {
+		return fmt.Errorf("creating config directories: %w", err)
+	}
+
+	newPath := inst.ConfigJSONPath(newName)
+	if err := os.WriteFile(newPath, data, 0o644); err != nil {
+		return fmt.Errorf("writing config.json: %w", err)
+	}
+
+	inst.ActiveConfig = newName
+	if err := inst.Save(); err != nil {
+		return fmt.Errorf("saving instance: %w", err)
+	}
+
+	printSuccess("Configuration %q created from %q.", newName, sourceName)
+	fmt.Println()
+	fmt.Println("  Copied settings:")
+	fmt.Printf("    Server name:  %s\n", sourceCfg.Game.Name)
+	fmt.Printf("    Bind address: %s:%d\n", sourceCfg.BindAddress, sourceCfg.BindPort)
+	fmt.Printf("    Max players:  %d\n", sourceCfg.Game.MaxPlayers)
+	fmt.Printf("    Scenario:     %s\n", sourceCfg.Game.ScenarioID)
+	if len(sourceCfg.Game.Mods) > 0 {
+		fmt.Printf("    Mods:         %d mod(s)\n", len(sourceCfg.Game.Mods))
+	}
+	fmt.Println()
+	fmt.Printf("  Config file: %s\n", newPath)
+	fmt.Println()
+
+	openEditor := false
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Open config.json in $EDITOR to customise?",
+		Default: true,
+	}, &openEditor); err != nil {
+		return err
+	}
+	if openEditor {
+		return openInEditor(newPath)
+	}
+	return nil
+}
+
+// configFullWizard runs the full interactive wizard for the very first configuration.
+func configFullWizard(inst *instance.Instance, configName string) error {
 	// Server display name
 	serverName := ""
 	if err := survey.AskOne(&survey.Input{
@@ -224,7 +297,7 @@ func createConfigWizard(inst *instance.Instance, configName string) error {
 		}
 	}
 
-	// Build config
+	// Build and write config
 	serverCfg := rsmconfig.DefaultServerConfig(
 		serverName, bindAddress, publicAddress,
 		gamePort, queryPort, maxPlayers,
@@ -232,13 +305,11 @@ func createConfigWizard(inst *instance.Instance, configName string) error {
 	)
 	serverCfg.Game.ScenarioID = scenarioID
 
-	// Write config.json
 	if err := instance.EnsureConfigDirs(inst, configName); err != nil {
 		return fmt.Errorf("creating config directories: %w", err)
 	}
 
 	configPath := inst.ConfigJSONPath(configName)
-
 	jsonData, err := json.MarshalIndent(serverCfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshalling config: %w", err)
@@ -247,21 +318,15 @@ func createConfigWizard(inst *instance.Instance, configName string) error {
 		return fmt.Errorf("writing config.json: %w", err)
 	}
 
-	// Set as active config if this is the first one
-	if inst.ActiveConfig == "" {
-		inst.ActiveConfig = configName
-		if err := inst.Save(); err != nil {
-			return fmt.Errorf("saving instance: %w", err)
-		}
-		printSuccess("Configuration %q created and set as active.", configName)
-	} else {
-		printSuccess("Configuration %q created.", configName)
+	// First config is always set as active
+	inst.ActiveConfig = configName
+	if err := inst.Save(); err != nil {
+		return fmt.Errorf("saving instance: %w", err)
 	}
-
+	printSuccess("Configuration %q created and set as active.", configName)
 	fmt.Printf("  Config file: %s\n", configPath)
 	fmt.Println()
 
-	// Offer to open in editor
 	openEditor := false
 	if err := survey.AskOne(&survey.Confirm{
 		Message: "Open config.json in $EDITOR for further customization?",
@@ -272,7 +337,6 @@ func createConfigWizard(inst *instance.Instance, configName string) error {
 	if openEditor {
 		return openInEditor(configPath)
 	}
-
 	return nil
 }
 
@@ -419,7 +483,8 @@ func runConfigUse(_ *cobra.Command, args []string) error {
 	}
 	if err := regenerateUnit(inst, steamcmdPath); err != nil {
 		printWarning("Could not update systemd unit: %v", err)
-		printInfo("Run 'rsm instance new --instance %s' to reinstall the unit manually.", inst.Name)
+		printInfo("Reinstall the unit manually: sudo cp %s /etc/systemd/system/%s && sudo systemctl daemon-reload",
+			inst.ServiceUnitPath(), inst.SystemdServiceName())
 	}
 
 	printSuccess("Active configuration changed: %s → %s", oldConfig, newConfig)
