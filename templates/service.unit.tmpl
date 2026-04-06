@@ -1,0 +1,22 @@
+[Unit]
+Description=Arma Reforger Server - {{.InstanceName}} ({{.ActiveConfig}})
+After=network.target
+
+[Service]
+Type=simple
+User={{.User}}
+WorkingDirectory={{.InstallDir}}
+ExecStartPre={{.ExecStartPre}}
+ExecStart={{.InstallDir}}/ArmaReforgerServer \
+  -config {{.ConfigPath}} \
+  -profile {{.ProfilePath}} \
+  -maxFPS {{.MaxFPS}}{{range .ExtraFlags}} \
+  {{.}}{{end}}
+Restart=on-failure
+RestartSec=10s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=rsm-{{.InstanceName}}
+
+[Install]
+WantedBy=multi-user.target
