@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/AlecAivazis/survey/v2"
+	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/config"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/instance"
@@ -134,24 +134,42 @@ func runUpdate(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// requireSteamCMD ensures steamcmd is configured, prompting the user if not.
+// requireSteamCMD returns the steamcmd path, detecting it automatically if not
+// already stored. Saves the detected path for future runs. Fails with a clear
+// install instruction if steamcmd is not found anywhere on the system.
 func requireSteamCMD(cfg *config.GlobalConfig) (string, error) {
+	// Already known — use it.
 	if cfg.SteamCMDPath != "" {
 		return cfg.SteamCMDPath, nil
 	}
 
-	printWarning("steamcmd is not configured. Run 'rsm init' first.")
-
-	var path string
-	if err := survey.AskOne(&survey.Input{
-		Message: "Enter path to steamcmd:",
-	}, &path, survey.WithValidator(survey.Required)); err != nil {
-		return "", err
+	// Try to detect automatically.
+	printInfo("Looking for steamcmd...")
+	detected := steam.DetectSteamCMD()
+	if detected != "" {
+		printSuccess("Found steamcmd at: %s", detected)
+		cfg.SteamCMDPath = detected
+		if err := config.SaveGlobal(cfg); err != nil {
+			return "", fmt.Errorf("saving config: %w", err)
+		}
+		return detected, nil
 	}
 
-	cfg.SteamCMDPath = path
-	if err := config.SaveGlobal(cfg); err != nil {
-		return "", fmt.Errorf("saving config: %w", err)
-	}
-	return path, nil
+	// Not found — print install instructions and fail.
+	fmt.Println()
+	fmt.Println(color.RedString("✗ steamcmd not found."))
+	fmt.Println()
+	fmt.Println("  Install it first, then re-run this command:")
+	fmt.Println()
+	fmt.Println("  " + color.HiWhiteString("Debian / Ubuntu:"))
+	fmt.Println("    sudo add-apt-repository multiverse")
+	fmt.Println("    sudo apt update && sudo apt install steamcmd")
+	fmt.Println()
+	fmt.Println("  " + color.HiWhiteString("Other Linux (manual):"))
+	fmt.Println("    mkdir ~/steamcmd && cd ~/steamcmd")
+	fmt.Println("    curl -O https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
+	fmt.Println("    tar -xzf steamcmd_linux.tar.gz")
+	fmt.Println("    ./steamcmd.sh +quit")
+	fmt.Println()
+	return "", fmt.Errorf("steamcmd is required but was not found; install it and try again")
 }

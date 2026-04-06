@@ -186,108 +186,148 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 		SystemdUser:     answers.SystemUser,
 	}
 
-	// Install server?
-	doInstall := false
-	cfg, err := config.LoadGlobal()
-	if err != nil {
-		return err
-	}
-
-	if cfg.SteamCMDPath != "" {
-		installPrompt := &survey.Confirm{
-			Message: fmt.Sprintf("Install/verify server files in %s now?", answers.InstallDir),
-			Default: true,
-		}
-		if err := survey.AskOne(installPrompt, &doInstall); err != nil {
-			return err
-		}
-	} else {
-		printWarning("steamcmd not configured — skipping server installation.")
-		printInfo("Run 'rsm init' to configure steamcmd, then 'rsm install' to install server files.")
-	}
-
-	// Save instance metadata (directories created by Save)
+	// ── Save instance metadata ──────────────────────────────────────────────
 	if err := inst.Save(); err != nil {
 		return fmt.Errorf("saving instance: %w", err)
 	}
 	printSuccess("Instance %q created.", inst.Name)
 
-	// Run install
-	if doInstall {
-		fmt.Println()
-		if err := runInstallForInstance(inst, cfg.SteamCMDPath); err != nil {
-			printWarning("Installation failed: %v", err)
-			printInfo("You can retry with: rsm install --instance %s", inst.Name)
-		}
-	}
-
-	// Create first configuration
+	// ── Step: install server files ──────────────────────────────────────────
 	fmt.Println()
-	printInfo("Now let's create the first configuration for this instance.")
-	if err := createConfigWizard(inst, ""); err != nil {
+	cfg, err := config.LoadGlobal()
+	if err != nil {
 		return err
 	}
 
-	// Generate and install systemd unit
-	fmt.Println()
-	installUnit := false
-	unitPrompt := &survey.Confirm{
-		Message: "Generate and install systemd service unit? (requires sudo)",
+	doInstall := false
+	if err := survey.AskOne(&survey.Confirm{
+		Message: fmt.Sprintf("Download and install server files into %s now?", answers.InstallDir),
 		Default: true,
-	}
-	if err := survey.AskOne(unitPrompt, &installUnit); err != nil {
+	}, &doInstall); err != nil {
 		return err
 	}
 
-	if installUnit {
-		if err := systemd.InstallUnit(inst, cfg.SteamCMDPath); err != nil {
-			printWarning("Could not install systemd unit: %v", err)
-			printInfo("You can install it manually — unit file saved to:")
-			unitPath, _ := inst.ServiceUnitPath()
-			fmt.Println(" ", unitPath)
-		} else {
-			printSuccess("systemd unit installed: rsm-%s.service", inst.Name)
+	if doInstall {
+		steamcmdPath, steamErr := requireSteamCMD(cfg)
+		if steamErr != nil {
+			// requireSteamCMD already printed the install instructions
+			fmt.Println()
+			printNextStep("Once steamcmd is installed, run:", fmt.Sprintf("rsm install -i %s", inst.Name))
+			return steamErr
 		}
+		fmt.Println()
+		if err := runInstallForInstance(inst, steamcmdPath); err != nil {
+			printWarning("Installation failed: %v", err)
+			fmt.Println()
+			printNextStep("Retry the install with:", fmt.Sprintf("rsm install -i %s", inst.Name))
+			return nil
+		}
+	} else {
+		fmt.Println()
+		printNextStep("When ready to install the server, run:", fmt.Sprintf("rsm install -i %s", inst.Name))
+		return nil
 	}
 
-	// Offer to enable + start
-	if installUnit {
-		fmt.Println()
-		enableNow := false
-		enablePrompt := &survey.Confirm{
-			Message: "Enable autostart (systemctl enable)?",
-			Default: true,
-		}
-		if err := survey.AskOne(enablePrompt, &enableNow); err != nil {
-			return err
-		}
-		if enableNow {
-			if err := systemd.Enable(inst); err != nil {
-				printWarning("Enable failed: %v", err)
-			} else {
-				printSuccess("Autostart enabled.")
-			}
-		}
+	// ── Step: create first configuration ────────────────────────────────────
+	fmt.Println()
+	doConfig := false
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Create the first server configuration now?",
+		Default: true,
+		Help:    "Sets up config.json (server name, ports, scenario, passwords, etc.)",
+	}, &doConfig); err != nil {
+		return err
+	}
 
-		startNow := false
-		startPrompt := &survey.Confirm{
-			Message: "Start the server now?",
-			Default: false,
-		}
-		if err := survey.AskOne(startPrompt, &startNow); err != nil {
+	if doConfig {
+		fmt.Println()
+		if err := createConfigWizard(inst, ""); err != nil {
 			return err
 		}
-		if startNow {
-			if err := systemd.Start(inst); err != nil {
-				return fmt.Errorf("starting server: %w", err)
-			}
-			printSuccess("Server started.")
+		// Reload inst from disk so ActiveConfig is up to date
+		if updated, err := instance.Load(inst.Name); err == nil {
+			inst = updated
 		}
+	} else {
+		fmt.Println()
+		printNextStep("When ready to configure, run:", fmt.Sprintf("rsm config new -i %s", inst.Name))
+		return nil
+	}
+
+	// ── Step: install systemd unit ───────────────────────────────────────────
+	fmt.Println()
+	doUnit := false
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Install systemd service unit for autostart management? (requires sudo)",
+		Default: true,
+	}, &doUnit); err != nil {
+		return err
+	}
+
+	steamcmdPath := cfg.SteamCMDPath // already detected above
+	if doUnit {
+		if err := systemd.InstallUnit(inst, steamcmdPath); err != nil {
+			printWarning("Could not install systemd unit: %v", err)
+			unitPath, _ := inst.ServiceUnitPath()
+			printInfo("Unit file saved locally at: %s", unitPath)
+			fmt.Println()
+			printNextStep("Install it manually with:", fmt.Sprintf("sudo cp %s /etc/systemd/system/%s && sudo systemctl daemon-reload", unitPath, inst.SystemdServiceName()))
+			return nil
+		}
+		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())
+	} else {
+		fmt.Println()
+		printNextStep("To set up autostart later, run:", fmt.Sprintf("rsm enable -i %s", inst.Name))
+		return nil
+	}
+
+	// ── Step: enable autostart ───────────────────────────────────────────────
+	fmt.Println()
+	doEnable := false
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Enable autostart on boot? (systemctl enable)",
+		Default: true,
+	}, &doEnable); err != nil {
+		return err
+	}
+
+	if doEnable {
+		if err := systemd.Enable(inst); err != nil {
+			printWarning("Enable failed: %v", err)
+		} else {
+			printSuccess("Autostart enabled.")
+		}
+	} else {
+		fmt.Println()
+		printNextStep("To enable autostart later, run:", fmt.Sprintf("rsm enable -i %s", inst.Name))
+	}
+
+	// ── Step: start now ──────────────────────────────────────────────────────
+	fmt.Println()
+	doStart := false
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Start the server now?",
+		Default: true,
+	}, &doStart); err != nil {
+		return err
+	}
+
+	if doStart {
+		if err := systemd.Start(inst); err != nil {
+			printWarning("Failed to start: %v", err)
+			fmt.Println()
+			printNextStep("Start it manually with:", fmt.Sprintf("rsm start -i %s", inst.Name))
+		} else {
+			printSuccess("Server started.")
+			fmt.Println()
+			printInfo("Follow logs with: rsm logs -i %s -f", inst.Name)
+		}
+	} else {
+		fmt.Println()
+		printNextStep("Start the server when ready with:", fmt.Sprintf("rsm start -i %s", inst.Name))
 	}
 
 	fmt.Println()
-	printSuccess("Instance %q is ready.", inst.Name)
-	printInstanceQuickHelp(inst.Name)
 	return nil
 }
 
@@ -427,13 +467,4 @@ func runInstanceStatus(_ *cobra.Command, args []string) error {
 	fmt.Println(color.HiWhiteString("systemd status:"))
 	fmt.Println(status)
 	return nil
-}
-
-func printInstanceQuickHelp(name string) {
-	fmt.Println(color.HiWhiteString("Quick commands:"))
-	fmt.Printf("  rsm start -i %s         — start the server\n", name)
-	fmt.Printf("  rsm stop -i %s          — stop the server\n", name)
-	fmt.Printf("  rsm logs -i %s          — view logs\n", name)
-	fmt.Printf("  rsm config list -i %s   — list configurations\n", name)
-	fmt.Printf("  rsm config use <name> -i %s — switch configuration\n", name)
 }
