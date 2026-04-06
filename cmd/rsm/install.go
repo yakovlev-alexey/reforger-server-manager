@@ -3,9 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/yakovlev-alex/reforger-server-manager/internal/config"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/instance"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/steam"
 )
@@ -17,6 +15,8 @@ var installCmd = &cobra.Command{
 	Short: "Install or verify the Arma Reforger server files via steamcmd",
 	Long: `Runs steamcmd to install or verify the Arma Reforger dedicated server files.
 If the files are already installed, steamcmd will verify and update them.
+
+steamcmd must be installed and available on PATH or in a standard location.
 
 Use --experimental to install the experimental beta branch instead of stable.
 This overrides the branch stored in the instance for this run only.`,
@@ -45,17 +45,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// --experimental flag on the command overrides the stored instance setting
 	if flagInstallExperimental {
 		inst.Experimental = true
 	}
 
-	cfg, err := config.LoadGlobal()
-	if err != nil {
-		return err
-	}
-
-	steamcmdPath, err := requireSteamCMD(cfg)
+	steamcmdPath, err := steam.Require()
 	if err != nil {
 		return err
 	}
@@ -86,30 +80,22 @@ func runUpdate(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	cfg, err := config.LoadGlobal()
-	if err != nil {
-		return err
-	}
-
-	steamcmdPath, err := requireSteamCMD(cfg)
+	steamcmdPath, err := steam.Require()
 	if err != nil {
 		return err
 	}
 
 	// If server is running, schedule update-on-restart
-	if isRunning := isInstanceRunning(inst); isRunning {
+	if isInstanceRunning(inst) {
 		inst.UpdateOnRestart = true
 		if err := inst.Save(); err != nil {
 			return fmt.Errorf("saving instance: %w", err)
 		}
-
-		// Regenerate systemd unit to include the update command in ExecStartPre
 		if err := regenerateUnit(inst, steamcmdPath); err != nil {
 			printWarning("Could not update systemd unit: %v", err)
 		}
-
-		printSuccess("Update scheduled for next restart of instance %q.", inst.Name)
-		printInfo("Run 'rsm restart -i %s' to apply now.", inst.Name)
+		printSuccess("Update scheduled for next restart.")
+		printInfo("Run 'rsm restart' to apply now.")
 		return nil
 	}
 
@@ -119,13 +105,10 @@ func runUpdate(_ *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// Clear update-on-restart flag since we just updated
 	inst.UpdateOnRestart = false
 	if err := inst.Save(); err != nil {
 		return fmt.Errorf("saving instance: %w", err)
 	}
-
-	// Regenerate unit without the update pre-command
 	if err := regenerateUnit(inst, steamcmdPath); err != nil {
 		printWarning("Could not update systemd unit: %v", err)
 	}
@@ -134,42 +117,8 @@ func runUpdate(_ *cobra.Command, _ []string) error {
 	return nil
 }
 
-// requireSteamCMD returns the steamcmd path, detecting it automatically if not
-// already stored. Saves the detected path for future runs. Fails with a clear
-// install instruction if steamcmd is not found anywhere on the system.
-func requireSteamCMD(cfg *config.GlobalConfig) (string, error) {
-	// Already known — use it.
-	if cfg.SteamCMDPath != "" {
-		return cfg.SteamCMDPath, nil
-	}
-
-	// Try to detect automatically.
-	printInfo("Looking for steamcmd...")
-	detected := steam.DetectSteamCMD()
-	if detected != "" {
-		printSuccess("Found steamcmd at: %s", detected)
-		cfg.SteamCMDPath = detected
-		if err := config.SaveGlobal(cfg); err != nil {
-			return "", fmt.Errorf("saving config: %w", err)
-		}
-		return detected, nil
-	}
-
-	// Not found — print install instructions and fail.
-	fmt.Println()
-	fmt.Println(color.RedString("✗ steamcmd not found."))
-	fmt.Println()
-	fmt.Println("  Install it first, then re-run this command:")
-	fmt.Println()
-	fmt.Println("  " + color.HiWhiteString("Debian / Ubuntu:"))
-	fmt.Println("    sudo add-apt-repository multiverse")
-	fmt.Println("    sudo apt update && sudo apt install steamcmd")
-	fmt.Println()
-	fmt.Println("  " + color.HiWhiteString("Other Linux (manual):"))
-	fmt.Println("    mkdir ~/steamcmd && cd ~/steamcmd")
-	fmt.Println("    curl -O https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz")
-	fmt.Println("    tar -xzf steamcmd_linux.tar.gz")
-	fmt.Println("    ./steamcmd.sh +quit")
-	fmt.Println()
-	return "", fmt.Errorf("steamcmd is required but was not found; install it and try again")
+// findSteamCMD returns the steamcmd path if found, or empty string.
+// Used by commands that benefit from steamcmd but don't require it (e.g. unit generation).
+func findSteamCMD() string {
+	return steam.Find()
 }

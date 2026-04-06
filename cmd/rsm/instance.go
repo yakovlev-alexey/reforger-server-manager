@@ -9,8 +9,8 @@ import (
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
-	"github.com/yakovlev-alex/reforger-server-manager/internal/config"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/instance"
+	"github.com/yakovlev-alex/reforger-server-manager/internal/steam"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/systemd"
 )
 
@@ -185,11 +185,6 @@ func runInstanceNew(nameArg string) error {
 
 	// ── Step: install server files ──────────────────────────────────────────
 	fmt.Println()
-	cfg, err := config.LoadGlobal()
-	if err != nil {
-		return err
-	}
-
 	doInstall := false
 	if err := survey.AskOne(&survey.Confirm{
 		Message: fmt.Sprintf("Download and install server files into %s now?", installDir),
@@ -200,7 +195,7 @@ func runInstanceNew(nameArg string) error {
 	}
 
 	if doInstall {
-		steamcmdPath, steamErr := requireSteamCMD(cfg)
+		steamcmdPath, steamErr := steam.Require()
 		if steamErr != nil {
 			fmt.Println()
 			printNextStep("Once steamcmd is installed, run:", "rsm install")
@@ -229,7 +224,7 @@ func runInstanceNew(nameArg string) error {
 		return err
 	}
 
-	steamcmdPath := cfg.SteamCMDPath
+	steamcmdPath := findSteamCMD()
 	if doUnit {
 		if err := systemd.InstallUnit(inst, steamcmdPath); err != nil {
 			printWarning("Could not install systemd unit: %v", err)

@@ -476,12 +476,7 @@ func runConfigUse(_ *cobra.Command, args []string) error {
 	}
 
 	// Regenerate systemd unit with new config/profile paths
-	globalCfg, _ := rsmconfig.LoadGlobal()
-	steamcmdPath := ""
-	if globalCfg != nil {
-		steamcmdPath = globalCfg.SteamCMDPath
-	}
-	if err := regenerateUnit(inst, steamcmdPath); err != nil {
+	if err := regenerateUnit(inst, findSteamCMD()); err != nil {
 		printWarning("Could not update systemd unit: %v", err)
 		printInfo("Reinstall the unit manually: sudo cp %s /etc/systemd/system/%s && sudo systemctl daemon-reload",
 			inst.ServiceUnitPath(), inst.SystemdServiceName())

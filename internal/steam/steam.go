@@ -12,32 +12,32 @@ const reforgerAppID = "1874900"
 // ExperimentalBranch is the Steam beta branch name for the experimental server build.
 const ExperimentalBranch = "experiment"
 
-// CommonPaths lists typical steamcmd locations on Linux.
-var CommonPaths = []string{
+// commonPaths lists typical steamcmd locations on Linux.
+var commonPaths = []string{
 	"/usr/games/steamcmd",
 	"/usr/bin/steamcmd",
 	"/usr/local/bin/steamcmd",
 }
 
-// DetectSteamCMD searches PATH and common locations for steamcmd.
-// Returns the path if found, or empty string if not found.
-func DetectSteamCMD() string {
-	// Try PATH first
+// Find searches PATH and common install locations for a working steamcmd binary.
+// Returns the absolute path if found, or an empty string if not found.
+func Find() string {
+	// PATH first
 	if path, err := exec.LookPath("steamcmd"); err == nil {
 		return path
 	}
 
-	// Try home directory (common manual install)
+	// Home-directory manual installs
+	candidates := commonPaths
 	if home, err := os.UserHomeDir(); err == nil {
-		candidates := []string{
+		candidates = append(candidates,
 			filepath.Join(home, "Steam", "steamcmd.sh"),
 			filepath.Join(home, "steamcmd", "steamcmd.sh"),
 			filepath.Join(home, ".steam", "steamcmd", "steamcmd.sh"),
-		}
-		CommonPaths = append(CommonPaths, candidates...)
+		)
 	}
 
-	for _, p := range CommonPaths {
+	for _, p := range candidates {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
@@ -45,15 +45,28 @@ func DetectSteamCMD() string {
 	return ""
 }
 
-// Validate runs steamcmd +quit to verify the binary works.
-func Validate(steamcmdPath string) error {
-	cmd := exec.Command(steamcmdPath, "+quit")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("steamcmd validation failed: %w", err)
+// Require returns the steamcmd path or an error with installation instructions.
+func Require() (string, error) {
+	path := Find()
+	if path != "" {
+		return path, nil
 	}
-	return nil
+
+	return "", fmt.Errorf(`steamcmd not found on this system.
+
+Install it first:
+
+  Debian / Ubuntu:
+    sudo add-apt-repository multiverse
+    sudo apt update && sudo apt install steamcmd
+
+  Other Linux (manual):
+    mkdir ~/steamcmd && cd ~/steamcmd
+    curl -O https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
+    tar -xzf steamcmd_linux.tar.gz
+    ./steamcmd.sh +quit
+
+Then re-run this command.`)
 }
 
 // Install runs steamcmd to install or update the Reforger dedicated server.
@@ -82,7 +95,7 @@ func Install(steamcmdPath, installDir string, experimental bool) error {
 	if experimental {
 		branch = "experimental"
 	}
-	fmt.Printf("Running steamcmd to install Arma Reforger Server (AppID %s, branch: %s)...\n", reforgerAppID, branch)
+	fmt.Printf("Running steamcmd — installing Arma Reforger Server (AppID %s, branch: %s)...\n", reforgerAppID, branch)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("steamcmd install failed: %w", err)
 	}
@@ -95,7 +108,7 @@ func Update(steamcmdPath, installDir string, experimental bool) error {
 	if experimental {
 		branch = "experimental"
 	}
-	fmt.Printf("Running steamcmd to update Arma Reforger Server (AppID %s, branch: %s)...\n", reforgerAppID, branch)
+	fmt.Printf("Running steamcmd — updating Arma Reforger Server (AppID %s, branch: %s)...\n", reforgerAppID, branch)
 	return Install(steamcmdPath, installDir, experimental)
 }
 
@@ -110,3 +123,6 @@ func BuildUpdateCommand(steamcmdPath, installDir string, experimental bool) stri
 		steamcmdPath, installDir, reforgerAppID, betaArgs,
 	)
 }
+
+// DetectSteamCMD is an alias for Find, kept for backward compatibility with tests.
+func DetectSteamCMD() string { return Find() }

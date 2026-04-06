@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/yakovlev-alex/reforger-server-manager/internal/config"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/instance"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/systemd"
 )
@@ -56,15 +55,6 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 }
 
-// loadSteamcmdPath returns the configured steamcmd path, or empty string.
-func loadSteamcmdPath() string {
-	cfg, err := config.LoadGlobal()
-	if err != nil || cfg == nil {
-		return ""
-	}
-	return cfg.SteamCMDPath
-}
-
 func runStart(_ *cobra.Command, _ []string) error {
 	resolved, err := instance.ResolveInstance("")
 	if err != nil {
@@ -83,7 +73,7 @@ func runStart(_ *cobra.Command, _ []string) error {
 	// running rsm start for the first time on an existing install.
 	if !systemd.IsInstalled(inst) {
 		printInfo("systemd unit not found — installing (requires sudo)...")
-		if err := systemd.InstallUnit(inst, loadSteamcmdPath()); err != nil {
+		if err := systemd.InstallUnit(inst, findSteamCMD()); err != nil {
 			return fmt.Errorf("installing systemd unit: %w", err)
 		}
 		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())
@@ -129,7 +119,7 @@ func runRestart(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("no active configuration set; run 'rsm config new' first")
 	}
 
-	steamcmdPath := loadSteamcmdPath()
+	steamcmdPath := findSteamCMD()
 
 	// Ensure unit exists before restarting.
 	if !systemd.IsInstalled(inst) {
@@ -180,7 +170,7 @@ func runEnable(_ *cobra.Command, _ []string) error {
 	// would succeed silently but do nothing useful.
 	if !systemd.IsInstalled(inst) {
 		printInfo("systemd unit not found — installing (requires sudo)...")
-		if err := systemd.InstallUnit(inst, loadSteamcmdPath()); err != nil {
+		if err := systemd.InstallUnit(inst, findSteamCMD()); err != nil {
 			return fmt.Errorf("installing systemd unit: %w", err)
 		}
 		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())

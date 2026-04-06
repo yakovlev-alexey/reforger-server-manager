@@ -61,8 +61,27 @@ func TestExperimentalBranchConstant(t *testing.T) {
 	}
 }
 
-func TestDetectSteamCMDReturnsString(t *testing.T) {
-	// Just verify it doesn't panic and returns a string (may be empty in CI)
-	result := steam.DetectSteamCMD()
-	_ = result // empty on systems without steamcmd is fine
+func TestFindReturnsString(t *testing.T) {
+	// Verify Find() doesn't panic; may return empty on systems without steamcmd
+	result := steam.Find()
+	_ = result
+}
+
+func TestRequireErrorMessage(t *testing.T) {
+	// If steamcmd is not installed, Require() should return an error with
+	// installation instructions. We can only test the error shape, not the
+	// happy path, without steamcmd present.
+	if steam.Find() != "" {
+		t.Skip("steamcmd is present on this system")
+	}
+	_, err := steam.Require()
+	if err == nil {
+		t.Fatal("expected error when steamcmd not found")
+	}
+	msg := err.Error()
+	for _, want := range []string{"steamcmd", "apt", "steamcmd_linux.tar.gz"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error message should mention %q, got: %s", want, msg)
+		}
+	}
 }
