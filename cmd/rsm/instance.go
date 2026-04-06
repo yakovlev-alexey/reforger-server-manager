@@ -69,81 +69,64 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 	fmt.Println(color.CyanString("=== Create New Server Instance ==="))
 	fmt.Println()
 
-	// Determine default user
-	currentUser := "steam"
+	// --- Step 1: resolve instance name first so we can derive the install dir default ---
+	instanceName := ""
+	if len(args) > 0 && args[0] != "" {
+		instanceName = args[0]
+	}
+	if instanceName == "" {
+		if err := survey.AskOne(&survey.Input{
+			Message: "Instance name (used as systemd service identifier):",
+			Default: "main",
+			Help:    "Lowercase letters, numbers, and hyphens only. E.g. 'main', 'modded'",
+		}, &instanceName, survey.WithValidator(survey.Required)); err != nil {
+			return err
+		}
+	}
+
+	// --- Step 2: derive defaults that depend on the name ---
+
+	// Default system user: the currently logged-in user (never hardcode "steam")
+	currentUser := ""
 	if u, err := user.Current(); err == nil {
 		currentUser = u.Username
 	}
 
-	// Default install dir
-	homeDir := "/home/steam/reforger"
-	if u, err := user.Current(); err == nil && u.Username != "root" {
-		homeDir = filepath.Join(u.HomeDir, "reforger")
+	// Default install dir: <cwd>/<instance-name>
+	// This is intuitive — the user is likely already in the right parent directory.
+	cwd, err := filepath.Abs(".")
+	if err != nil {
+		cwd = "."
+	}
+	defaultInstallDir := filepath.Join(cwd, instanceName)
+
+	// --- Step 3: ask the remaining questions ---
+	installDir := ""
+	if err := survey.AskOne(&survey.Input{
+		Message: "Server installation directory:",
+		Default: defaultInstallDir,
+		Help:    "Where ArmaReforgerServer binary will be installed",
+	}, &installDir, survey.WithValidator(survey.Required)); err != nil {
+		return err
+	}
+
+	systemUser := ""
+	if err := survey.AskOne(&survey.Input{
+		Message: "System user to run the server as:",
+		Default: currentUser,
+		Help:    "The OS user account the server process will run under",
+	}, &systemUser, survey.WithValidator(survey.Required)); err != nil {
+		return err
 	}
 
 	var answers struct {
 		Name       string
 		InstallDir string
 		SystemUser string
-		MaxFPS     int
-		ExtraFlags []string
 	}
-
-	// Pre-fill name if passed
-	if len(args) > 0 && args[0] != "" {
-		answers.Name = args[0]
-	}
-
-	qs := []*survey.Question{}
-
-	if answers.Name == "" {
-		qs = append(qs, &survey.Question{
-			Name: "Name",
-			Prompt: &survey.Input{
-				Message: "Instance name (used as systemd service identifier):",
-				Default: "main",
-				Help:    "Lowercase letters, numbers, and hyphens only. E.g. 'main', 'modded'",
-			},
-			Validate: survey.Required,
-		})
-	}
-
-	qs = append(qs,
-		&survey.Question{
-			Name: "InstallDir",
-			Prompt: &survey.Input{
-				Message: "Server installation directory:",
-				Default: homeDir,
-				Help:    "Where ArmaReforgerServer binary will be installed",
-			},
-			Validate: survey.Required,
-		},
-		&survey.Question{
-			Name: "SystemUser",
-			Prompt: &survey.Input{
-				Message: "System user to run the server as:",
-				Default: currentUser,
-			},
-			Validate: survey.Required,
-		},
-	)
-
-	// MaxFPS as string then convert
-	type rawAnswers struct {
-		Name       string
-		InstallDir string
-		SystemUser string
-	}
-	var raw rawAnswers
-
-	if err := survey.Ask(qs, &raw); err != nil {
-		return err
-	}
-	if answers.Name == "" {
-		answers.Name = raw.Name
-	}
-	answers.InstallDir = raw.InstallDir
-	answers.SystemUser = raw.SystemUser
+	answers.Name = instanceName
+	answers.InstallDir = installDir
+	answers.SystemUser = systemUser
 
 	// MaxFPS
 	maxFPSStr := "60"
