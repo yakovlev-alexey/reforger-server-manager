@@ -104,7 +104,7 @@ func TestGenerateUnit_WithUpdateOnRestart(t *testing.T) {
 	if !strings.Contains(content, "steamcmd") {
 		t.Error("ExecStartPre should contain steamcmd when UpdateOnRestart=true")
 	}
-	if !strings.Contains(content, "1874900") {
+	if !strings.Contains(content, "1874900") && !strings.Contains(content, "1890870") {
 		t.Error("ExecStartPre should contain Reforger app ID")
 	}
 }
@@ -164,11 +164,11 @@ func TestGenerateUnit_ExperimentalBranch(t *testing.T) {
 		t.Fatalf("GenerateUnit: %v", err)
 	}
 
-	if !strings.Contains(content, "-beta") {
-		t.Error("experimental unit should include -beta in ExecStartPre")
+	if !strings.Contains(content, "1890870") {
+		t.Error("experimental unit should use the experimental app ID (1890870) in ExecStartPre")
 	}
-	if !strings.Contains(content, "experiment") {
-		t.Error("experimental unit should include 'experiment' branch name in ExecStartPre")
+	if strings.Contains(content, "1874900") {
+		t.Error("experimental unit should not use the stable app ID (1874900) in ExecStartPre")
 	}
 }
 
@@ -182,7 +182,10 @@ func TestGenerateUnit_StableNoBetaFlag(t *testing.T) {
 		t.Fatalf("GenerateUnit: %v", err)
 	}
 
-	if strings.Contains(content, "-beta") {
-		t.Error("stable unit should not include -beta in ExecStartPre")
+	if strings.Contains(content, "1890870") {
+		t.Error("stable unit should not use the experimental app ID (1890870) in ExecStartPre")
+	}
+	if !strings.Contains(content, "1874900") {
+		t.Error("stable unit should use the stable app ID (1874900) in ExecStartPre")
 	}
 }

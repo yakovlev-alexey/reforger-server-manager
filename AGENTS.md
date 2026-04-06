@@ -258,8 +258,8 @@ if a new privileged operation is needed.
 
 ## Arma Reforger specifics
 
-- **Steam App ID:** `1874900`
-- **Experimental branch:** `-beta experiment` in steamcmd
+- **Steam App ID (stable):** `1874900`
+- **Steam App ID (experimental):** `1890870`
 - **Default scenario:** `{ECC61978EDCC2B5A}Missions/23_Campaign.conf` (Everon Game Master)
 - **Default ports:** game `2001/udp`, A2S query `17777/udp`
 - **Server binary:** `ArmaReforgerServer` (inside `install_dir`)
