@@ -14,10 +14,6 @@ import (
 // version is set at build time via -ldflags "-X main.version=v1.2.3"
 var version = "dev"
 
-var (
-	flagInstance string
-)
-
 var rootCmd = &cobra.Command{
 	Use:   "rsm",
 	Short: "Reforger Server Manager",
@@ -87,7 +83,6 @@ func runRoot(cmd *cobra.Command, _ []string) error {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVarP(&flagInstance, "instance", "i", "", "Instance name (optional when only one exists)")
 	rootCmd.AddCommand(versionCmd)
 }
 

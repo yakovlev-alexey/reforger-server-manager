@@ -28,7 +28,7 @@ func init() {
 }
 
 func runLogs(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}

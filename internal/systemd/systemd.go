@@ -95,6 +95,21 @@ func InstallUnit(inst *instance.Instance, steamcmdPath string) error {
 	return daemonReload()
 }
 
+// IsInstalled reports whether the unit file exists in /etc/systemd/system/.
+func IsInstalled(inst *instance.Instance) bool {
+	_, err := os.Stat("/etc/systemd/system/" + inst.SystemdServiceName())
+	return err == nil
+}
+
+// EnsureInstalled generates and installs the unit if it is not already present.
+// It is a no-op when the unit file already exists in /etc/systemd/system/.
+func EnsureInstalled(inst *instance.Instance, steamcmdPath string) error {
+	if IsInstalled(inst) {
+		return nil
+	}
+	return InstallUnit(inst, steamcmdPath)
+}
+
 // RemoveUnit removes the systemd unit file and reloads the daemon.
 func RemoveUnit(inst *instance.Instance) error {
 	systemdPath := "/etc/systemd/system/" + inst.SystemdServiceName()

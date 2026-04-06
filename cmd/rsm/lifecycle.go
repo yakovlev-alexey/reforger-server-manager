@@ -29,7 +29,7 @@ var restartCmd = &cobra.Command{
 
 var enableCmd = &cobra.Command{
 	Use:   "enable",
-	Short: "Enable autostart (systemctl enable)",
+	Short: "Enable autostart on boot (installs systemd unit if needed)",
 	RunE:  runEnable,
 }
 
@@ -56,8 +56,17 @@ func init() {
 	rootCmd.AddCommand(statusCmd)
 }
 
+// loadSteamcmdPath returns the configured steamcmd path, or empty string.
+func loadSteamcmdPath() string {
+	cfg, err := config.LoadGlobal()
+	if err != nil || cfg == nil {
+		return ""
+	}
+	return cfg.SteamCMDPath
+}
+
 func runStart(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -69,17 +78,28 @@ func runStart(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("no active configuration set; run 'rsm config new' first")
 	}
 
+	// Ensure the unit file is installed before trying to start.
+	// This handles the case where the user declined during rsm init or is
+	// running rsm start for the first time on an existing install.
+	if !systemd.IsInstalled(inst) {
+		printInfo("systemd unit not found — installing (requires sudo)...")
+		if err := systemd.InstallUnit(inst, loadSteamcmdPath()); err != nil {
+			return fmt.Errorf("installing systemd unit: %w", err)
+		}
+		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())
+	}
+
 	printInfo("Starting %s...", inst.SystemdServiceName())
 	if err := systemd.Start(inst); err != nil {
 		return err
 	}
 	printSuccess("Server started.")
-	printInfo("View logs with: rsm logs -i %s -f", inst.Name)
+	printInfo("View logs with: rsm logs -f")
 	return nil
 }
 
 func runStop(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -97,7 +117,7 @@ func runStop(_ *cobra.Command, _ []string) error {
 }
 
 func runRestart(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -109,15 +129,18 @@ func runRestart(_ *cobra.Command, _ []string) error {
 		return fmt.Errorf("no active configuration set; run 'rsm config new' first")
 	}
 
-	cfg, _ := config.LoadGlobal()
-	steamcmdPath := ""
-	if cfg != nil {
-		steamcmdPath = cfg.SteamCMDPath
-	}
+	steamcmdPath := loadSteamcmdPath()
 
-	// If update-on-restart is set, update the unit to include ExecStartPre
-	if inst.UpdateOnRestart && steamcmdPath != "" {
-		printInfo("Update-on-restart is enabled — steamcmd will run before starting.")
+	// Ensure unit exists before restarting.
+	if !systemd.IsInstalled(inst) {
+		printInfo("systemd unit not found — installing (requires sudo)...")
+		if err := systemd.InstallUnit(inst, steamcmdPath); err != nil {
+			return fmt.Errorf("installing systemd unit: %w", err)
+		}
+		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())
+	} else if inst.UpdateOnRestart && steamcmdPath != "" {
+		// Unit exists but needs updating for the steamcmd pre-command.
+		printInfo("Update-on-restart is enabled — refreshing unit...")
 		if err := regenerateUnit(inst, steamcmdPath); err != nil {
 			printWarning("Could not refresh systemd unit: %v", err)
 		}
@@ -129,13 +152,12 @@ func runRestart(_ *cobra.Command, _ []string) error {
 	}
 	printSuccess("Server restarted.")
 
-	// After successful restart, clear update-on-restart flag
+	// Clear update-on-restart flag after a successful restart.
 	if inst.UpdateOnRestart {
 		inst.UpdateOnRestart = false
 		if err := inst.Save(); err != nil {
 			printWarning("Could not clear update-on-restart flag: %v", err)
-		} else {
-			// Regenerate unit without the steamcmd pre-command
+		} else if steamcmdPath != "" {
 			if err := regenerateUnit(inst, steamcmdPath); err != nil {
 				printWarning("Could not reset systemd unit: %v", err)
 			}
@@ -145,13 +167,23 @@ func runRestart(_ *cobra.Command, _ []string) error {
 }
 
 func runEnable(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
 	inst, err := instance.Load(resolved)
 	if err != nil {
 		return err
+	}
+
+	// Install the unit if not already present — enabling a non-existent unit
+	// would succeed silently but do nothing useful.
+	if !systemd.IsInstalled(inst) {
+		printInfo("systemd unit not found — installing (requires sudo)...")
+		if err := systemd.InstallUnit(inst, loadSteamcmdPath()); err != nil {
+			return fmt.Errorf("installing systemd unit: %w", err)
+		}
+		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())
 	}
 
 	if err := systemd.Enable(inst); err != nil {
@@ -162,7 +194,7 @@ func runEnable(_ *cobra.Command, _ []string) error {
 }
 
 func runDisable(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}

@@ -36,7 +36,7 @@ func init() {
 }
 
 func runInstall(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -77,7 +77,7 @@ func runInstallForInstance(inst *instance.Instance, steamcmdPath string) error {
 }
 
 func runUpdate(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}

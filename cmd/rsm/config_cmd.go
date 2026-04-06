@@ -64,7 +64,7 @@ func init() {
 }
 
 func runConfigNew(_ *cobra.Command, args []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -341,7 +341,7 @@ func configFullWizard(inst *instance.Instance, configName string) error {
 }
 
 func runConfigList(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -399,7 +399,7 @@ func runConfigList(_ *cobra.Command, _ []string) error {
 }
 
 func runConfigEdit(_ *cobra.Command, args []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -427,7 +427,7 @@ func runConfigEdit(_ *cobra.Command, args []string) error {
 }
 
 func runConfigUse(_ *cobra.Command, args []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -501,7 +501,7 @@ func runConfigUse(_ *cobra.Command, args []string) error {
 }
 
 func runConfigDelete(_ *cobra.Command, args []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}

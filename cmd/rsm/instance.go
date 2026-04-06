@@ -179,7 +179,7 @@ func runInstanceNew(nameArg string) error {
 		}
 	} else {
 		fmt.Println()
-		printNextStep("When ready to configure, run:", fmt.Sprintf("rsm config new -i %s", inst.Name))
+		printNextStep("When ready to configure, run:", "rsm config new")
 		return nil
 	}
 
@@ -203,19 +203,19 @@ func runInstanceNew(nameArg string) error {
 		steamcmdPath, steamErr := requireSteamCMD(cfg)
 		if steamErr != nil {
 			fmt.Println()
-			printNextStep("Once steamcmd is installed, run:", fmt.Sprintf("rsm install -i %s", inst.Name))
+			printNextStep("Once steamcmd is installed, run:", "rsm install")
 			return steamErr
 		}
 		fmt.Println()
 		if err := runInstallForInstance(inst, steamcmdPath); err != nil {
 			printWarning("Installation failed: %v", err)
 			fmt.Println()
-			printNextStep("Retry the install with:", fmt.Sprintf("rsm install -i %s", inst.Name))
+			printNextStep("Retry the install with:", "rsm install")
 			return nil
 		}
 	} else {
 		fmt.Println()
-		printNextStep("When ready to install the server, run:", fmt.Sprintf("rsm install -i %s", inst.Name))
+		printNextStep("When ready to install the server, run:", "rsm install")
 		return nil
 	}
 
@@ -244,7 +244,7 @@ func runInstanceNew(nameArg string) error {
 		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())
 	} else {
 		fmt.Println()
-		printNextStep("To set up autostart later, run:", fmt.Sprintf("rsm enable -i %s", inst.Name))
+		printNextStep("To set up autostart later, run:", "rsm enable")
 		return nil
 	}
 
@@ -266,7 +266,7 @@ func runInstanceNew(nameArg string) error {
 		}
 	} else {
 		fmt.Println()
-		printNextStep("To enable autostart later, run:", fmt.Sprintf("rsm enable -i %s", inst.Name))
+		printNextStep("To enable autostart later, run:", "rsm enable")
 	}
 
 	// ── Step: start now ──────────────────────────────────────────────────────
@@ -283,7 +283,7 @@ func runInstanceNew(nameArg string) error {
 		if err := systemd.Start(inst); err != nil {
 			printWarning("Failed to start: %v", err)
 			fmt.Println()
-			printNextStep("Start it manually with:", fmt.Sprintf("rsm start -i %s", inst.Name))
+			printNextStep("Start it manually with:", "rsm start")
 		} else {
 			printSuccess("Server started.")
 			fmt.Println()
@@ -291,7 +291,7 @@ func runInstanceNew(nameArg string) error {
 		}
 	} else {
 		fmt.Println()
-		printNextStep("Start the server when ready with:", fmt.Sprintf("rsm start -i %s", inst.Name))
+		printNextStep("Start the server when ready with:", "rsm start")
 	}
 
 	fmt.Println()
@@ -299,7 +299,7 @@ func runInstanceNew(nameArg string) error {
 }
 
 func runInstanceDelete(_ *cobra.Command, _ []string) error {
-	resolved, err := instance.ResolveInstance(flagInstance)
+	resolved, err := instance.ResolveInstance("")
 	if err != nil {
 		return err
 	}
@@ -352,7 +352,7 @@ func runInstanceDelete(_ *cobra.Command, _ []string) error {
 }
 
 func runInstanceStatus(_ *cobra.Command, args []string) error {
-	name := flagInstance
+	name := ""
 	if len(args) > 0 && args[0] != "" {
 		name = args[0]
 	}
