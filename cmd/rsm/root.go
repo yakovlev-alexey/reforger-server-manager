@@ -8,6 +8,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is set at build time via -ldflags "-X main.version=v1.2.3"
+var version = "dev"
+
 var (
 	flagInstance string
 )
@@ -21,6 +24,14 @@ Each instance is a separate server installation that can have multiple
 named configurations (config.json + profile directory pairs).`,
 }
 
+var versionCmd = &cobra.Command{
+	Use:   "version",
+	Short: "Print rsm version",
+	Run: func(cmd *cobra.Command, args []string) {
+		fmt.Println(version)
+	},
+}
+
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, color.RedString("Error: %v", err))
@@ -30,6 +41,7 @@ func Execute() {
 
 func init() {
 	rootCmd.PersistentFlags().StringVarP(&flagInstance, "instance", "i", "", "Instance name (optional when only one exists)")
+	rootCmd.AddCommand(versionCmd)
 }
 
 // printSuccess prints a green success message.

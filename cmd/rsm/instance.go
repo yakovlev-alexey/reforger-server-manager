@@ -21,6 +21,8 @@ var instanceCmd = &cobra.Command{
 	Short: "Manage server instances",
 }
 
+var flagNewExperimental bool
+
 var instanceNewCmd = &cobra.Command{
 	Use:   "new [name]",
 	Short: "Create a new server instance",
@@ -55,6 +57,7 @@ var instanceStatusCmd = &cobra.Command{
 }
 
 func init() {
+	instanceNewCmd.Flags().BoolVar(&flagNewExperimental, "experimental", false, "Use the experimental (beta) branch of the Arma Reforger Server")
 	instanceCmd.AddCommand(instanceNewCmd)
 	instanceCmd.AddCommand(instanceListCmd)
 	instanceCmd.AddCommand(instanceDeleteCmd)
@@ -168,6 +171,21 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Experimental branch — use flag value if set, otherwise ask
+	useExperimental := flagNewExperimental
+	if !flagNewExperimental {
+		if err := survey.AskOne(&survey.Confirm{
+			Message: "Use experimental (beta) server branch?",
+			Default: false,
+			Help:    "Installs the 'experiment' Steam beta branch. May be unstable.",
+		}, &useExperimental); err != nil {
+			return err
+		}
+	}
+	if useExperimental {
+		printWarning("Experimental branch selected — this build may be unstable.")
+	}
+
 	// Validate instance name doesn't already exist
 	if _, err := instance.Load(answers.Name); err == nil {
 		return fmt.Errorf("instance %q already exists", answers.Name)
@@ -179,6 +197,7 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 		InstallDir:      answers.InstallDir,
 		ActiveConfig:    "",
 		UpdateOnRestart: false,
+		Experimental:    useExperimental,
 		MaxFPS:          maxFPS,
 		ExtraFlags:      extraFlagsChoices,
 		SystemdUser:     answers.SystemUser,
@@ -401,8 +420,14 @@ func runInstanceStatus(_ *cobra.Command, args []string) error {
 		return err
 	}
 
+	branch := "stable"
+	if inst.Experimental {
+		branch = color.YellowString("experimental")
+	}
+
 	fmt.Println(color.HiCyanString("Instance: %s", inst.Name))
 	fmt.Printf("  Install dir:     %s\n", inst.InstallDir)
+	fmt.Printf("  Branch:          %s\n", branch)
 	fmt.Printf("  Active config:   %s\n", inst.ActiveConfig)
 	fmt.Printf("  Max FPS:         %d\n", inst.MaxFPS)
 	fmt.Printf("  Extra flags:     %s\n", strings.Join(inst.ExtraFlags, " "))

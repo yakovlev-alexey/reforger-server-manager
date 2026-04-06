@@ -10,11 +10,16 @@ import (
 	"github.com/yakovlev-alex/reforger-server-manager/internal/steam"
 )
 
+var flagInstallExperimental bool
+
 var installCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Install or verify the Arma Reforger server files via steamcmd",
 	Long: `Runs steamcmd to install or verify the Arma Reforger dedicated server files.
-If the files are already installed, steamcmd will verify and update them.`,
+If the files are already installed, steamcmd will verify and update them.
+
+Use --experimental to install the experimental beta branch instead of stable.
+This overrides the branch stored in the instance for this run only.`,
 	RunE: runInstall,
 }
 
@@ -25,6 +30,7 @@ var updateCmd = &cobra.Command{
 }
 
 func init() {
+	installCmd.Flags().BoolVar(&flagInstallExperimental, "experimental", false, "Install the experimental (beta) branch for this run")
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(updateCmd)
 }
@@ -37,6 +43,11 @@ func runInstall(_ *cobra.Command, _ []string) error {
 	inst, err := instance.Load(resolved)
 	if err != nil {
 		return err
+	}
+
+	// --experimental flag on the command overrides the stored instance setting
+	if flagInstallExperimental {
+		inst.Experimental = true
 	}
 
 	cfg, err := config.LoadGlobal()
@@ -53,8 +64,12 @@ func runInstall(_ *cobra.Command, _ []string) error {
 }
 
 func runInstallForInstance(inst *instance.Instance, steamcmdPath string) error {
-	fmt.Printf("Installing server to: %s\n", inst.InstallDir)
-	if err := steam.Install(steamcmdPath, inst.InstallDir); err != nil {
+	branch := "stable"
+	if inst.Experimental {
+		branch = "experimental"
+	}
+	fmt.Printf("Installing server to: %s (branch: %s)\n", inst.InstallDir, branch)
+	if err := steam.Install(steamcmdPath, inst.InstallDir, inst.Experimental); err != nil {
 		return err
 	}
 	printSuccess("Server files installed/verified in %s", inst.InstallDir)
@@ -100,7 +115,7 @@ func runUpdate(_ *cobra.Command, _ []string) error {
 
 	// Server is stopped — update immediately
 	printInfo("Server is not running. Updating now...")
-	if err := steam.Update(steamcmdPath, inst.InstallDir); err != nil {
+	if err := steam.Update(steamcmdPath, inst.InstallDir, inst.Experimental); err != nil {
 		return err
 	}
 

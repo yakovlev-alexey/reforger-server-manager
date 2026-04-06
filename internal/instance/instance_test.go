@@ -15,6 +15,23 @@ func setupHome(t *testing.T) string {
 	return tmpDir
 }
 
+func makeInstanceWithDir(t *testing.T, name, installDir string) *instance.Instance {
+	t.Helper()
+	inst := &instance.Instance{
+		Name:            name,
+		InstallDir:      installDir,
+		ActiveConfig:    "vanilla",
+		UpdateOnRestart: false,
+		MaxFPS:          60,
+		ExtraFlags:      []string{"-loadSessionSave", "-backendLocalStorage"},
+		SystemdUser:     "steam",
+	}
+	if err := inst.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	return inst
+}
+
 func makeInstance(t *testing.T, name string) *instance.Instance {
 	t.Helper()
 	inst := &instance.Instance{
@@ -217,5 +234,88 @@ func TestProfileDir(t *testing.T) {
 	}
 	if _, err := os.Stat(profileDir); err != nil {
 		t.Errorf("profile dir not created: %v", err)
+	}
+}
+
+func TestResolveInstanceFromCWD_ExactMatch(t *testing.T) {
+	setupHome(t)
+
+	// Create a real temp directory to use as install_dir
+	installDir := t.TempDir()
+	makeInstanceWithDir(t, "cwdserver", installDir)
+	makeInstance(t, "other") // second instance to prevent single-instance fallback
+
+	// Change CWD to the install dir
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(orig) })
+	if err := os.Chdir(installDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	resolved, err := instance.ResolveInstance("")
+	if err != nil {
+		t.Fatalf("ResolveInstance: %v", err)
+	}
+	if resolved != "cwdserver" {
+		t.Errorf("resolved = %q, want 'cwdserver'", resolved)
+	}
+}
+
+func TestResolveInstanceFromCWD_Subdirectory(t *testing.T) {
+	setupHome(t)
+
+	installDir := t.TempDir()
+	subDir := filepath.Join(installDir, "logs", "2024")
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	makeInstanceWithDir(t, "subtest", installDir)
+	makeInstance(t, "other2")
+
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(orig) })
+	if err := os.Chdir(subDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	resolved, err := instance.ResolveInstance("")
+	if err != nil {
+		t.Fatalf("ResolveInstance: %v", err)
+	}
+	if resolved != "subtest" {
+		t.Errorf("resolved = %q, want 'subtest'", resolved)
+	}
+}
+
+func TestResolveInstanceFromCWD_NoMatch(t *testing.T) {
+	setupHome(t)
+	makeInstanceWithDir(t, "alpha", "/home/steam/reforger")
+	makeInstanceWithDir(t, "beta", "/home/steam/reforger2")
+
+	// CWD is unrelated — should fall through to ambiguous error
+	_, err := instance.ResolveInstance("")
+	if err == nil {
+		t.Error("expected error when CWD doesn't match and multiple instances exist")
+	}
+}
+
+func TestResolveInstanceExplicitOverridesCWD(t *testing.T) {
+	setupHome(t)
+
+	installDir := t.TempDir()
+	makeInstanceWithDir(t, "cwdinst", installDir)
+	makeInstance(t, "explicit")
+
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(orig) })
+	os.Chdir(installDir)
+
+	// Explicit name should win over CWD
+	resolved, err := instance.ResolveInstance("explicit")
+	if err != nil {
+		t.Fatalf("ResolveInstance: %v", err)
+	}
+	if resolved != "explicit" {
+		t.Errorf("resolved = %q, want 'explicit'", resolved)
 	}
 }

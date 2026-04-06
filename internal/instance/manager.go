@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/yakovlev-alex/reforger-server-manager/internal/config"
 	"gopkg.in/yaml.v3"
@@ -66,14 +67,21 @@ func List() ([]string, error) {
 	return names, nil
 }
 
-// ResolveInstance resolves the target instance name:
-// - If name is provided, use it.
-// - If only one instance exists, use it automatically.
-// - Otherwise return an error asking the user to specify.
+// ResolveInstance resolves the target instance name using the following priority:
+//  1. Explicit name provided via --instance flag.
+//  2. CWD matches an instance's install_dir (or is beneath it).
+//  3. Only one instance exists — use it automatically.
+//  4. Error: ask the user to specify.
 func ResolveInstance(name string) (string, error) {
 	if name != "" {
 		return name, nil
 	}
+
+	// Try CWD-based resolution before falling back to single-instance logic.
+	if cwdName, err := resolveFromCWD(); err == nil && cwdName != "" {
+		return cwdName, nil
+	}
+
 	names, err := List()
 	if err != nil {
 		return "", err
@@ -85,6 +93,55 @@ func ResolveInstance(name string) (string, error) {
 		return names[0], nil
 	}
 	return "", fmt.Errorf("multiple instances exist; specify one with --instance <name>")
+}
+
+// resolveFromCWD attempts to identify which instance the current working
+// directory belongs to by comparing the CWD against each instance's install_dir.
+// Returns the instance name if found, or ("", nil) if no match.
+func resolveFromCWD() (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", nil // non-fatal; fall through to other strategies
+	}
+	// Resolve symlinks so path comparisons are reliable.
+	cwd, _ = filepath.EvalSymlinks(cwd)
+
+	names, err := List()
+	if err != nil || len(names) == 0 {
+		return "", nil
+	}
+
+	for _, n := range names {
+		inst, err := Load(n)
+		if err != nil || inst.InstallDir == "" {
+			continue
+		}
+		installDir, _ := filepath.EvalSymlinks(inst.InstallDir)
+		if installDir == "" {
+			installDir = inst.InstallDir
+		}
+		// Match if CWD equals installDir or is a subdirectory of it.
+		if cwd == installDir || isSubPath(cwd, installDir) {
+			return n, nil
+		}
+	}
+	return "", nil
+}
+
+// isSubPath reports whether child is strictly inside parent (not equal, not outside).
+func isSubPath(child, parent string) bool {
+	rel, err := filepath.Rel(parent, child)
+	if err != nil {
+		return false
+	}
+	// "." means equal (already handled by the == check in the caller).
+	// ".." or paths starting with ".." mean child is outside parent.
+	if rel == "." || rel == ".." {
+		return false
+	}
+	// Any path component starting with ".." means child escaped parent.
+	parts := strings.SplitN(rel, string(filepath.Separator), 2)
+	return parts[0] != ".."
 }
 
 // Delete removes an instance's metadata directory.

@@ -14,6 +14,7 @@ type Instance struct {
 	InstallDir      string   `yaml:"install_dir"`
 	ActiveConfig    string   `yaml:"active_config"`
 	UpdateOnRestart bool     `yaml:"update_on_restart"`
+	Experimental    bool     `yaml:"experimental"`
 	MaxFPS          int      `yaml:"max_fps"`
 	ExtraFlags      []string `yaml:"extra_flags"`
 	SystemdUser     string   `yaml:"systemd_user"`

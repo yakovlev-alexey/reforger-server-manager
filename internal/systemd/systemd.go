@@ -41,7 +41,7 @@ func GenerateUnit(inst *instance.Instance, steamcmdPath string) (string, error) 
 
 	execStartPre := "/bin/true"
 	if inst.UpdateOnRestart && steamcmdPath != "" {
-		execStartPre = steam.BuildUpdateCommand(steamcmdPath, inst.InstallDir)
+		execStartPre = steam.BuildUpdateCommand(steamcmdPath, inst.InstallDir, inst.Experimental)
 	}
 
 	params := unitParams{

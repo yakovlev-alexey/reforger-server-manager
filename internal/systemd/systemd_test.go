@@ -152,3 +152,36 @@ func TestGenerateUnit_RestartPolicy(t *testing.T) {
 		t.Error("unit should have Restart=on-failure")
 	}
 }
+
+func TestGenerateUnit_ExperimentalBranch(t *testing.T) {
+	inst := setupInstance(t)
+	inst.UpdateOnRestart = true
+	inst.Experimental = true
+
+	content, err := systemd.GenerateUnit(inst, "/usr/games/steamcmd")
+	if err != nil {
+		t.Fatalf("GenerateUnit: %v", err)
+	}
+
+	if !strings.Contains(content, "-beta") {
+		t.Error("experimental unit should include -beta in ExecStartPre")
+	}
+	if !strings.Contains(content, "experiment") {
+		t.Error("experimental unit should include 'experiment' branch name in ExecStartPre")
+	}
+}
+
+func TestGenerateUnit_StableNoBetaFlag(t *testing.T) {
+	inst := setupInstance(t)
+	inst.UpdateOnRestart = true
+	inst.Experimental = false
+
+	content, err := systemd.GenerateUnit(inst, "/usr/games/steamcmd")
+	if err != nil {
+		t.Fatalf("GenerateUnit: %v", err)
+	}
+
+	if strings.Contains(content, "-beta") {
+		t.Error("stable unit should not include -beta in ExecStartPre")
+	}
+}
