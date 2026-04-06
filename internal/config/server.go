@@ -8,7 +8,7 @@ type ServerConfig struct {
 	PublicAddress string    `json:"publicAddress"`
 	PublicPort    int       `json:"publicPort"`
 	A2S           A2S       `json:"a2s"`
-	RCON          RCON      `json:"rcon"`
+	RCON          *RCON     `json:"rcon,omitempty"`
 	Game          Game      `json:"game"`
 	Operating     Operating `json:"operating"`
 }
@@ -79,7 +79,6 @@ func DefaultServerConfig(name, bindAddress, publicAddress string, gamePort, quer
 			Address: "0.0.0.0",
 			Port:    queryPort,
 		},
-		RCON: RCON{},
 		Game: Game{
 			Name:               name,
 			Password:           gamePassword,
