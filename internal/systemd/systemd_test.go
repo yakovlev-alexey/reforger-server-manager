@@ -14,9 +14,10 @@ func setupInstance(t *testing.T) *instance.Instance {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
+	installDir := t.TempDir()
 	inst := &instance.Instance{
 		Name:            "testserver",
-		InstallDir:      "/home/steam/reforger",
+		InstallDir:      installDir,
 		ActiveConfig:    "vanilla",
 		UpdateOnRestart: false,
 		MaxFPS:          60,
@@ -32,7 +33,7 @@ func setupInstance(t *testing.T) *instance.Instance {
 		t.Fatalf("EnsureConfigDirs: %v", err)
 	}
 	// Write a dummy config.json
-	configPath, _ := inst.ConfigJSONPath("vanilla")
+	configPath := inst.ConfigJSONPath("vanilla")
 	if err := os.WriteFile(configPath, []byte(`{}`), 0o644); err != nil {
 		t.Fatalf("write config.json: %v", err)
 	}

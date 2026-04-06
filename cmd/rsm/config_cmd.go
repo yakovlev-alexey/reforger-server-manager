@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/fatih/color"
@@ -35,9 +34,9 @@ var configListCmd = &cobra.Command{
 }
 
 var configEditCmd = &cobra.Command{
-	Use:   "edit <name>",
-	Short: "Open a configuration's config.json in $EDITOR",
-	Args:  cobra.ExactArgs(1),
+	Use:   "edit [name]",
+	Short: "Open a configuration's config.json in $EDITOR (defaults to active config)",
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runConfigEdit,
 }
 
@@ -238,10 +237,7 @@ func createConfigWizard(inst *instance.Instance, configName string) error {
 		return fmt.Errorf("creating config directories: %w", err)
 	}
 
-	configPath, err := inst.ConfigJSONPath(configName)
-	if err != nil {
-		return err
-	}
+	configPath := inst.ConfigJSONPath(configName)
 
 	jsonData, err := json.MarshalIndent(serverCfg, "", "  ")
 	if err != nil {
@@ -300,23 +296,41 @@ func runConfigList(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, color.HiWhiteString("NAME\tSTATUS\tCONFIG PATH"))
-	fmt.Fprintln(w, strings.Repeat("-", 70))
-
+	type row struct{ name, status, path string }
+	rows := make([]row, 0, len(configs))
 	for _, name := range configs {
-		status := "  "
+		status := ""
 		if name == inst.ActiveConfig {
-			status = color.GreenString("active")
+			status = "active"
 		}
-		configPath, _ := inst.ConfigJSONPath(name)
-		fmt.Fprintf(w, "%s\t%s\t%s\n",
-			color.HiCyanString(name),
-			status,
-			configPath,
+		rows = append(rows, row{name, status, inst.ConfigJSONPath(name)})
+	}
+
+	w0, w1 := len("NAME"), len("STATUS")
+	for _, r := range rows {
+		if len(r.name) > w0 {
+			w0 = len(r.name)
+		}
+		if len(r.status) > w1 {
+			w1 = len(r.status)
+		}
+	}
+	gap := 3
+	header := fmt.Sprintf("%-*s%-*s%s", w0+gap, "NAME", w1+gap, "STATUS", "CONFIG PATH")
+	fmt.Println(color.HiWhiteString(header))
+	fmt.Println(strings.Repeat("-", w0+w1+gap*2+20))
+	for _, r := range rows {
+		nameStr := color.HiCyanString(r.name)
+		statusStr := r.status
+		if r.status == "active" {
+			statusStr = color.GreenString(r.status)
+		}
+		fmt.Printf("%-*s%-*s%s\n",
+			w0+gap+len(nameStr)-len(r.name), nameStr,
+			w1+gap+len(statusStr)-len(r.status), statusStr,
+			r.path,
 		)
 	}
-	w.Flush()
 	return nil
 }
 
@@ -330,13 +344,19 @@ func runConfigEdit(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	configPath, err := inst.ConfigJSONPath(args[0])
-	if err != nil {
-		return err
+	// Default to active config when no name is given
+	configName := inst.ActiveConfig
+	if len(args) > 0 && args[0] != "" {
+		configName = args[0]
+	}
+	if configName == "" {
+		return fmt.Errorf("no active configuration set; run 'rsm config new' first")
 	}
 
+	configPath := inst.ConfigJSONPath(configName)
+
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		return fmt.Errorf("config %q not found (no config.json at %s)", args[0], configPath)
+		return fmt.Errorf("config %q not found (no config.json at %s)", configName, configPath)
 	}
 
 	return openInEditor(configPath)
@@ -355,10 +375,7 @@ func runConfigUse(_ *cobra.Command, args []string) error {
 	newConfig := args[0]
 
 	// Verify config exists
-	configPath, err := inst.ConfigJSONPath(newConfig)
-	if err != nil {
-		return err
-	}
+	configPath := inst.ConfigJSONPath(newConfig)
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return fmt.Errorf("configuration %q not found", newConfig)
 	}
@@ -434,10 +451,7 @@ func runConfigDelete(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot delete the active configuration %q; switch to another config first", configName)
 	}
 
-	configDir, err := inst.ConfigDir(configName)
-	if err != nil {
-		return err
-	}
+	configDir := inst.ConfigDir(configName)
 	if _, err := os.Stat(configDir); os.IsNotExist(err) {
 		return fmt.Errorf("configuration %q not found", configName)
 	}

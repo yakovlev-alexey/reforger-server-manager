@@ -56,20 +56,6 @@ func TestGlobalConfigPath(t *testing.T) {
 	}
 }
 
-func TestInstancesDir(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-
-	dir, err := config.InstancesDir()
-	if err != nil {
-		t.Fatalf("InstancesDir: %v", err)
-	}
-	want := filepath.Join(tmpDir, ".config", "rsm", "instances")
-	if dir != want {
-		t.Errorf("dir = %q, want %q", dir, want)
-	}
-}
-
 func TestSaveGlobalCreatesDir(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)

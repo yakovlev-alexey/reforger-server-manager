@@ -2,11 +2,9 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/AlecAivazis/survey/v2"
 	"github.com/fatih/color"
@@ -16,64 +14,49 @@ import (
 	"github.com/yakovlev-alex/reforger-server-manager/internal/systemd"
 )
 
-var instanceCmd = &cobra.Command{
-	Use:   "instance",
-	Short: "Manage server instances",
-}
-
 var flagNewExperimental bool
 
-var instanceNewCmd = &cobra.Command{
-	Use:   "new [name]",
-	Short: "Create a new server instance",
-	Args:  cobra.MaximumNArgs(1),
+// initCmd replaces the old "rsm instance new" — it is the primary entry point
+// for setting up a new Arma Reforger server instance.
+var initCmd = &cobra.Command{
+	Use:   "init [name]",
+	Short: "Set up a new Arma Reforger server instance",
+	Long: `Guided wizard to create a new server instance.
+
+Walks through:
+  1. Instance name and install directory
+  2. Downloading server files via steamcmd
+  3. Generating a server configuration
+  4. Installing a systemd service unit
+  5. Enabling autostart and starting the server`,
+	Args: cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var name string
+		name := ""
 		if len(args) > 0 {
 			name = args[0]
 		}
-		return runInstanceNew(cmd, []string{name})
+		return runInstanceNew(name)
 	},
 }
 
-var instanceListCmd = &cobra.Command{
-	Use:   "list",
-	Short: "List all server instances",
-	RunE:  runInstanceList,
-}
-
-var instanceDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete a server instance",
-	Args:  cobra.ExactArgs(1),
+var deleteCmd = &cobra.Command{
+	Use:   "delete",
+	Short: "Remove this instance's registration (optionally wipe server files)",
 	RunE:  runInstanceDelete,
 }
 
-var instanceStatusCmd = &cobra.Command{
-	Use:   "status [name]",
-	Short: "Show detailed status of an instance",
-	Args:  cobra.MaximumNArgs(1),
-	RunE:  runInstanceStatus,
-}
-
 func init() {
-	instanceNewCmd.Flags().BoolVar(&flagNewExperimental, "experimental", false, "Use the experimental (beta) branch of the Arma Reforger Server")
-	instanceCmd.AddCommand(instanceNewCmd)
-	instanceCmd.AddCommand(instanceListCmd)
-	instanceCmd.AddCommand(instanceDeleteCmd)
-	instanceCmd.AddCommand(instanceStatusCmd)
-	rootCmd.AddCommand(instanceCmd)
+	initCmd.Flags().BoolVar(&flagNewExperimental, "experimental", false, "Use the experimental (beta) branch of the Arma Reforger Server")
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(deleteCmd)
 }
 
-func runInstanceNew(_ *cobra.Command, args []string) error {
-	fmt.Println(color.CyanString("=== Create New Server Instance ==="))
+func runInstanceNew(nameArg string) error {
+	fmt.Println(color.CyanString("=== Set Up New Server Instance ==="))
 	fmt.Println()
 
-	// --- Step 1: resolve instance name first so we can derive the install dir default ---
-	instanceName := ""
-	if len(args) > 0 && args[0] != "" {
-		instanceName = args[0]
-	}
+	// --- Step 1: instance name ---
+	instanceName := nameArg
 	if instanceName == "" {
 		if err := survey.AskOne(&survey.Input{
 			Message: "Instance name (used as systemd service identifier):",
@@ -84,23 +67,19 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	// --- Step 2: derive defaults that depend on the name ---
-
-	// Default system user: the currently logged-in user (never hardcode "steam")
+	// --- Step 2: defaults that depend on name ---
 	currentUser := ""
 	if u, err := user.Current(); err == nil {
 		currentUser = u.Username
 	}
 
-	// Default install dir: <cwd>/<instance-name>
-	// This is intuitive — the user is likely already in the right parent directory.
 	cwd, err := filepath.Abs(".")
 	if err != nil {
 		cwd = "."
 	}
 	defaultInstallDir := filepath.Join(cwd, instanceName)
 
-	// --- Step 3: ask the remaining questions ---
+	// --- Step 3: remaining instance questions ---
 	installDir := ""
 	if err := survey.AskOne(&survey.Input{
 		Message: "Server installation directory:",
@@ -119,16 +98,6 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	var answers struct {
-		Name       string
-		InstallDir string
-		SystemUser string
-	}
-	answers.Name = instanceName
-	answers.InstallDir = installDir
-	answers.SystemUser = systemUser
-
-	// MaxFPS
 	maxFPSStr := "60"
 	if err := survey.AskOne(&survey.Input{
 		Message: "Maximum FPS (server tick rate):",
@@ -139,22 +108,15 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 	maxFPS := 60
 	fmt.Sscanf(maxFPSStr, "%d", &maxFPS)
 
-	// Extra flags
 	extraFlagsChoices := []string{}
-	extraFlagsPrompt := &survey.MultiSelect{
+	if err := survey.AskOne(&survey.MultiSelect{
 		Message: "Enable extra launch flags:",
-		Options: []string{
-			"-loadSessionSave",
-			"-backendLocalStorage",
-			"-logStats 3000",
-		},
+		Options: []string{"-loadSessionSave", "-backendLocalStorage", "-logStats 3000"},
 		Default: []string{"-loadSessionSave", "-backendLocalStorage"},
-	}
-	if err := survey.AskOne(extraFlagsPrompt, &extraFlagsChoices); err != nil {
+	}, &extraFlagsChoices); err != nil {
 		return err
 	}
 
-	// Experimental branch — use flag value if set, otherwise ask
 	useExperimental := flagNewExperimental
 	if !flagNewExperimental {
 		if err := survey.AskOne(&survey.Confirm{
@@ -169,26 +131,28 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 		printWarning("Experimental branch selected — this build may be unstable.")
 	}
 
-	// Validate instance name doesn't already exist
-	if _, err := instance.Load(answers.Name); err == nil {
-		return fmt.Errorf("instance %q already exists", answers.Name)
+	// --- Validate: no duplicate name in registry ---
+	if existing, err := instance.Load(instanceName); err == nil && existing != nil {
+		return fmt.Errorf("instance %q already exists (install dir: %s)", instanceName, existing.InstallDir)
 	}
 
-	// Create instance
 	inst := &instance.Instance{
-		Name:            answers.Name,
-		InstallDir:      answers.InstallDir,
+		Name:            instanceName,
+		InstallDir:      installDir,
 		ActiveConfig:    "",
 		UpdateOnRestart: false,
 		Experimental:    useExperimental,
 		MaxFPS:          maxFPS,
 		ExtraFlags:      extraFlagsChoices,
-		SystemdUser:     answers.SystemUser,
+		SystemdUser:     systemUser,
 	}
 
-	// ── Save instance metadata ──────────────────────────────────────────────
+	// --- Save rsm.yaml + register ---
 	if err := inst.Save(); err != nil {
 		return fmt.Errorf("saving instance: %w", err)
+	}
+	if err := instance.Register(inst); err != nil {
+		return fmt.Errorf("registering instance: %w", err)
 	}
 	printSuccess("Instance %q created.", inst.Name)
 
@@ -201,7 +165,7 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 
 	doInstall := false
 	if err := survey.AskOne(&survey.Confirm{
-		Message: fmt.Sprintf("Download and install server files into %s now?", answers.InstallDir),
+		Message: fmt.Sprintf("Download and install server files into %s now?", installDir),
 		Default: true,
 	}, &doInstall); err != nil {
 		return err
@@ -210,7 +174,6 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 	if doInstall {
 		steamcmdPath, steamErr := requireSteamCMD(cfg)
 		if steamErr != nil {
-			// requireSteamCMD already printed the install instructions
 			fmt.Println()
 			printNextStep("Once steamcmd is installed, run:", fmt.Sprintf("rsm install -i %s", inst.Name))
 			return steamErr
@@ -244,7 +207,6 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 		if err := createConfigWizard(inst, ""); err != nil {
 			return err
 		}
-		// Reload inst from disk so ActiveConfig is up to date
 		if updated, err := instance.Load(inst.Name); err == nil {
 			inst = updated
 		}
@@ -264,14 +226,16 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 		return err
 	}
 
-	steamcmdPath := cfg.SteamCMDPath // already detected above
+	steamcmdPath := cfg.SteamCMDPath
 	if doUnit {
 		if err := systemd.InstallUnit(inst, steamcmdPath); err != nil {
 			printWarning("Could not install systemd unit: %v", err)
-			unitPath, _ := inst.ServiceUnitPath()
+			unitPath := inst.ServiceUnitPath()
 			printInfo("Unit file saved locally at: %s", unitPath)
 			fmt.Println()
-			printNextStep("Install it manually with:", fmt.Sprintf("sudo cp %s /etc/systemd/system/%s && sudo systemctl daemon-reload", unitPath, inst.SystemdServiceName()))
+			printNextStep("Install it manually with:",
+				fmt.Sprintf("sudo cp %s /etc/systemd/system/%s && sudo systemctl daemon-reload",
+					unitPath, inst.SystemdServiceName()))
 			return nil
 		}
 		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())
@@ -331,61 +295,20 @@ func runInstanceNew(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-func runInstanceList(_ *cobra.Command, _ []string) error {
-	names, err := instance.List()
+func runInstanceDelete(_ *cobra.Command, _ []string) error {
+	resolved, err := instance.ResolveInstance(flagInstance)
 	if err != nil {
 		return err
 	}
-	if len(names) == 0 {
-		printInfo("No instances found. Run 'rsm instance new' to create one.")
-		return nil
-	}
-
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, color.HiWhiteString("NAME\tACTIVE CONFIG\tSTATUS\tAUTOSTART\tINSTALL DIR"))
-	fmt.Fprintln(w, strings.Repeat("-", 80))
-
-	for _, name := range names {
-		inst, err := instance.Load(name)
-		if err != nil {
-			fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n", name, "?", "error", "?", "?")
-			continue
-		}
-
-		status := color.RedString("stopped")
-		if systemd.IsActive(inst) {
-			status = color.GreenString("running")
-		}
-
-		autostart := color.RedString("disabled")
-		if systemd.IsEnabled(inst) {
-			autostart = color.GreenString("enabled")
-		}
-
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-			color.HiCyanString(inst.Name),
-			inst.ActiveConfig,
-			status,
-			autostart,
-			inst.InstallDir,
-		)
-	}
-	w.Flush()
-	return nil
-}
-
-func runInstanceDelete(_ *cobra.Command, args []string) error {
-	name := args[0]
-	inst, err := instance.Load(name)
+	inst, err := instance.Load(resolved)
 	if err != nil {
 		return err
 	}
 
-	// Stop if running
 	if systemd.IsActive(inst) {
 		stopFirst := false
 		if err := survey.AskOne(&survey.Confirm{
-			Message: fmt.Sprintf("Instance %q is running. Stop it first?", name),
+			Message: fmt.Sprintf("Instance %q is running. Stop it first?", inst.Name),
 			Default: true,
 		}, &stopFirst); err != nil {
 			return err
@@ -395,19 +318,17 @@ func runInstanceDelete(_ *cobra.Command, args []string) error {
 		}
 	}
 
-	// Ask about install dir
 	wipeFiles := false
 	if err := survey.AskOne(&survey.Confirm{
-		Message: fmt.Sprintf("Also delete server files in %s? (this is irreversible)", inst.InstallDir),
+		Message: fmt.Sprintf("Also delete server files in %s? (irreversible)", inst.InstallDir),
 		Default: false,
 	}, &wipeFiles); err != nil {
 		return err
 	}
 
-	// Confirm
 	confirmed := false
 	if err := survey.AskOne(&survey.Confirm{
-		Message: fmt.Sprintf("Are you sure you want to delete instance %q?", name),
+		Message: fmt.Sprintf("Are you sure you want to delete instance %q?", inst.Name),
 		Default: false,
 	}, &confirmed); err != nil {
 		return err
@@ -417,14 +338,13 @@ func runInstanceDelete(_ *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Remove systemd unit
 	_ = systemd.Disable(inst)
 	_ = systemd.RemoveUnit(inst)
 
-	if err := instance.Delete(name, wipeFiles); err != nil {
+	if err := instance.Delete(inst.Name, wipeFiles); err != nil {
 		return err
 	}
-	printSuccess("Instance %q deleted.", name)
+	printSuccess("Instance %q removed.", inst.Name)
 	return nil
 }
 

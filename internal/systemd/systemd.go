@@ -81,11 +81,8 @@ func InstallUnit(inst *instance.Instance, steamcmdPath string) error {
 		return err
 	}
 
-	// Save a reference copy next to instance.yaml
-	localPath, err := inst.ServiceUnitPath()
-	if err != nil {
-		return err
-	}
+	// Save a reference copy inside the install directory
+	localPath := inst.ServiceUnitPath()
 	if err := os.WriteFile(localPath, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("writing local unit file: %w", err)
 	}

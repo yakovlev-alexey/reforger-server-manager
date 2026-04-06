@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
@@ -126,30 +125,78 @@ func printNextStep(message, command string) {
 }
 
 // printInstanceSummary renders a compact instance table for the root command output.
+// tabwriter cannot handle ANSI codes (they inflate column widths), so we
+// compute column widths from plain strings and pad manually before colorising.
 func printInstanceSummary(names []string) {
-	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	fmt.Fprintln(w, "  "+color.HiWhiteString("NAME\tCONFIG\tSTATUS\tAUTOSTART"))
-	fmt.Fprintln(w, "  "+strings.Repeat("-", 60))
+	type row struct {
+		name      string
+		cfg       string
+		status    string
+		autostart string
+	}
+
+	rows := make([]row, 0, len(names))
 	for _, name := range names {
 		inst, err := instance.Load(name)
 		if err != nil {
-			fmt.Fprintf(w, "  %s\t?\terror\t?\n", name)
+			rows = append(rows, row{name, "?", "error", "?"})
 			continue
-		}
-		status := color.RedString("stopped")
-		if systemd.IsActive(inst) {
-			status = color.GreenString("running")
-		}
-		autostart := color.RedString("off")
-		if systemd.IsEnabled(inst) {
-			autostart = color.GreenString("on")
 		}
 		cfg := inst.ActiveConfig
 		if cfg == "" {
-			cfg = color.YellowString("(no config)")
+			cfg = "(no config)"
 		}
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n",
-			color.HiCyanString(name), cfg, status, autostart)
+		status := "stopped"
+		if systemd.IsActive(inst) {
+			status = "running"
+		}
+		autostart := "off"
+		if systemd.IsEnabled(inst) {
+			autostart = "on"
+		}
+		rows = append(rows, row{name, cfg, status, autostart})
 	}
-	w.Flush()
+
+	// Compute column widths from plain text
+	w0, w1, w2, w3 := len("NAME"), len("CONFIG"), len("STATUS"), len("AUTOSTART")
+	for _, r := range rows {
+		if len(r.name) > w0 {
+			w0 = len(r.name)
+		}
+		if len(r.cfg) > w1 {
+			w1 = len(r.cfg)
+		}
+		if len(r.status) > w2 {
+			w2 = len(r.status)
+		}
+		if len(r.autostart) > w3 {
+			w3 = len(r.autostart)
+		}
+	}
+	gap := 3
+
+	header := fmt.Sprintf("  %-*s%-*s%-*s%-*s",
+		w0+gap, "NAME", w1+gap, "CONFIG", w2+gap, "STATUS", w3, "AUTOSTART")
+	fmt.Println(color.HiWhiteString(header))
+	fmt.Println("  " + strings.Repeat("-", w0+w1+w2+w3+gap*3))
+
+	for _, r := range rows {
+		statusStr := color.RedString(r.status)
+		if r.status == "running" {
+			statusStr = color.GreenString(r.status)
+		}
+		autostartStr := color.RedString(r.autostart)
+		if r.autostart == "on" {
+			autostartStr = color.GreenString(r.autostart)
+		}
+		nameStr := color.HiCyanString(r.name)
+		fmt.Printf("  %-*s%-*s%-*s%s\n",
+			// Plain-text widths + gap give correct visual spacing even after
+			// the adjacent colorised strings are expanded with ANSI codes.
+			w0+gap+len(nameStr)-len(r.name), nameStr,
+			w1+gap, r.cfg,
+			w2+gap+len(statusStr)-len(r.status), statusStr,
+			autostartStr,
+		)
+	}
 }

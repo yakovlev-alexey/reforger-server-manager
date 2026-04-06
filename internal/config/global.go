@@ -33,15 +33,6 @@ func GlobalConfigPath() (string, error) {
 	return filepath.Join(dir, globalConfigFileName), nil
 }
 
-// InstancesDir returns the path to the instances directory
-func InstancesDir() (string, error) {
-	dir, err := GlobalConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "instances"), nil
-}
-
 // LoadGlobal reads the global config from disk. Returns empty config if file doesn't exist.
 func LoadGlobal() (*GlobalConfig, error) {
 	path, err := GlobalConfigPath()

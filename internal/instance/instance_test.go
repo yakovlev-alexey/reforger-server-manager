@@ -8,11 +8,20 @@ import (
 	"github.com/yakovlev-alex/reforger-server-manager/internal/instance"
 )
 
+// setupHome redirects HOME so the registry lands in a temp dir.
 func setupHome(t *testing.T) string {
 	t.Helper()
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 	return tmpDir
+}
+
+// makeInstance creates an instance with a real temp directory as its install dir,
+// saves rsm.yaml inside it, and registers it.
+func makeInstance(t *testing.T, name string) *instance.Instance {
+	t.Helper()
+	installDir := t.TempDir()
+	return makeInstanceWithDir(t, name, installDir)
 }
 
 func makeInstanceWithDir(t *testing.T, name, installDir string) *instance.Instance {
@@ -29,22 +38,8 @@ func makeInstanceWithDir(t *testing.T, name, installDir string) *instance.Instan
 	if err := inst.Save(); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	return inst
-}
-
-func makeInstance(t *testing.T, name string) *instance.Instance {
-	t.Helper()
-	inst := &instance.Instance{
-		Name:            name,
-		InstallDir:      "/home/steam/reforger",
-		ActiveConfig:    "vanilla",
-		UpdateOnRestart: false,
-		MaxFPS:          60,
-		ExtraFlags:      []string{"-loadSessionSave", "-backendLocalStorage"},
-		SystemdUser:     "steam",
-	}
-	if err := inst.Save(); err != nil {
-		t.Fatalf("Save: %v", err)
+	if err := instance.Register(inst); err != nil {
+		t.Fatalf("Register: %v", err)
 	}
 	return inst
 }
@@ -68,6 +63,27 @@ func TestSaveAndLoad(t *testing.T) {
 	}
 	if len(loaded.ExtraFlags) != len(orig.ExtraFlags) {
 		t.Errorf("ExtraFlags len = %d, want %d", len(loaded.ExtraFlags), len(orig.ExtraFlags))
+	}
+}
+
+func TestLoadFromDir(t *testing.T) {
+	setupHome(t)
+	orig := makeInstance(t, "dirtest")
+
+	loaded, err := instance.LoadFromDir(orig.InstallDir)
+	if err != nil {
+		t.Fatalf("LoadFromDir: %v", err)
+	}
+	if loaded.Name != orig.Name {
+		t.Errorf("Name = %q, want %q", loaded.Name, orig.Name)
+	}
+}
+
+func TestLoadFromDir_Missing(t *testing.T) {
+	setupHome(t)
+	_, err := instance.LoadFromDir(t.TempDir()) // no rsm.yaml inside
+	if err == nil {
+		t.Error("expected error for directory without rsm.yaml")
 	}
 }
 
@@ -169,12 +185,11 @@ func TestListConfigs(t *testing.T) {
 		t.Errorf("expected 0 configs, got %d", len(configs))
 	}
 
-	// Create config dirs manually
 	if err := instance.EnsureConfigDirs(inst, "vanilla"); err != nil {
-		t.Fatalf("EnsureConfigDirs: %v", err)
+		t.Fatalf("EnsureConfigDirs vanilla: %v", err)
 	}
 	if err := instance.EnsureConfigDirs(inst, "modded"); err != nil {
-		t.Fatalf("EnsureConfigDirs: %v", err)
+		t.Fatalf("EnsureConfigDirs modded: %v", err)
 	}
 
 	configs, err = inst.ListConfigs()
@@ -203,49 +218,55 @@ func TestDelete(t *testing.T) {
 }
 
 func TestConfigJSONPath(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setupHome(t)
 	inst := makeInstance(t, "pathtest")
 
-	path, err := inst.ConfigJSONPath("vanilla")
-	if err != nil {
-		t.Fatalf("ConfigJSONPath: %v", err)
-	}
+	path := inst.ConfigJSONPath("vanilla")
 	if filepath.Base(path) != "config.json" {
 		t.Errorf("expected config.json, got %q", filepath.Base(path))
 	}
+	// Must be inside install_dir/configuration/vanilla/
 	if filepath.Base(filepath.Dir(path)) != "vanilla" {
 		t.Errorf("expected parent dir 'vanilla', got %q", filepath.Base(filepath.Dir(path)))
+	}
+	if filepath.Base(filepath.Dir(filepath.Dir(path))) != "configuration" {
+		t.Errorf("expected grandparent 'configuration', got %q",
+			filepath.Base(filepath.Dir(filepath.Dir(path))))
 	}
 }
 
 func TestProfileDir(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	setupHome(t)
 	inst := makeInstance(t, "proftest")
 
 	if err := instance.EnsureConfigDirs(inst, "vanilla"); err != nil {
 		t.Fatalf("EnsureConfigDirs: %v", err)
 	}
 
-	profileDir, err := inst.ProfileDir("vanilla")
-	if err != nil {
-		t.Fatalf("ProfileDir: %v", err)
-	}
+	profileDir := inst.ProfileDir("vanilla")
 	if _, err := os.Stat(profileDir); err != nil {
 		t.Errorf("profile dir not created: %v", err)
+	}
+}
+
+func TestMetaPath(t *testing.T) {
+	setupHome(t)
+	inst := makeInstance(t, "meta")
+	if filepath.Base(inst.MetaPath()) != "rsm.yaml" {
+		t.Errorf("MetaPath base = %q, want rsm.yaml", filepath.Base(inst.MetaPath()))
+	}
+	if filepath.Dir(inst.MetaPath()) != inst.InstallDir {
+		t.Errorf("MetaPath dir = %q, want %q", filepath.Dir(inst.MetaPath()), inst.InstallDir)
 	}
 }
 
 func TestResolveInstanceFromCWD_ExactMatch(t *testing.T) {
 	setupHome(t)
 
-	// Create a real temp directory to use as install_dir
 	installDir := t.TempDir()
 	makeInstanceWithDir(t, "cwdserver", installDir)
-	makeInstance(t, "other") // second instance to prevent single-instance fallback
+	makeInstance(t, "other")
 
-	// Change CWD to the install dir
 	orig, _ := os.Getwd()
 	t.Cleanup(func() { os.Chdir(orig) })
 	if err := os.Chdir(installDir); err != nil {
@@ -287,12 +308,35 @@ func TestResolveInstanceFromCWD_Subdirectory(t *testing.T) {
 	}
 }
 
+func TestResolveInstanceFromCWD_RsmYaml(t *testing.T) {
+	setupHome(t)
+
+	// rsm.yaml in CWD should be found by walking up
+	installDir := t.TempDir()
+	makeInstanceWithDir(t, "cwdyaml", installDir)
+	makeInstance(t, "other3") // second instance so single-fallback doesn't trigger
+
+	orig, _ := os.Getwd()
+	t.Cleanup(func() { os.Chdir(orig) })
+	if err := os.Chdir(installDir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+
+	resolved, err := instance.ResolveInstance("")
+	if err != nil {
+		t.Fatalf("ResolveInstance via rsm.yaml: %v", err)
+	}
+	if resolved != "cwdyaml" {
+		t.Errorf("resolved = %q, want 'cwdyaml'", resolved)
+	}
+}
+
 func TestResolveInstanceFromCWD_NoMatch(t *testing.T) {
 	setupHome(t)
-	makeInstanceWithDir(t, "alpha", "/home/steam/reforger")
-	makeInstanceWithDir(t, "beta", "/home/steam/reforger2")
+	// Use fixed non-existent paths that won't match CWD
+	makeInstanceWithDir(t, "alpha", "/tmp/rsm-test-no-match-alpha")
+	makeInstanceWithDir(t, "beta", "/tmp/rsm-test-no-match-beta")
 
-	// CWD is unrelated — should fall through to ambiguous error
 	_, err := instance.ResolveInstance("")
 	if err == nil {
 		t.Error("expected error when CWD doesn't match and multiple instances exist")
@@ -310,7 +354,6 @@ func TestResolveInstanceExplicitOverridesCWD(t *testing.T) {
 	t.Cleanup(func() { os.Chdir(orig) })
 	os.Chdir(installDir)
 
-	// Explicit name should win over CWD
 	resolved, err := instance.ResolveInstance("explicit")
 	if err != nil {
 		t.Fatalf("ResolveInstance: %v", err)

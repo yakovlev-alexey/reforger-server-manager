@@ -43,7 +43,7 @@ var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show server status",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return runInstanceStatus(cmd, args)
+		return runInstanceStatus(nil, args)
 	},
 }
 
