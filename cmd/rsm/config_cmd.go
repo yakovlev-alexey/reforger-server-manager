@@ -423,7 +423,16 @@ func runConfigEdit(_ *cobra.Command, args []string) error {
 		return fmt.Errorf("config %q not found (no config.json at %s)", configName, configPath)
 	}
 
-	return openInEditor(configPath)
+	if err := openInEditor(configPath); err != nil {
+		return err
+	}
+
+	if isInstanceRunning(inst) {
+		printNextStep("Restart the server to apply your changes:", "rsm restart")
+	} else {
+		printNextStep("Start the server to apply your changes:", "rsm start")
+	}
+	return nil
 }
 
 func runConfigUse(_ *cobra.Command, args []string) error {
