@@ -222,6 +222,7 @@ func printCommonCommands(inInstance bool) {
 			entry{"rsm config new", "create a new configuration"},
 			entry{"rsm config use <name>", "switch active configuration"},
 			entry{"rsm config edit", "edit active config.json in $EDITOR"},
+			entry{"rsm edit", "edit instance options (FPS, restarts, flags, etc.)"},
 			entry{"rsm enable", "enable autostart on boot"},
 			entry{"rsm update", "schedule a server update"},
 		)

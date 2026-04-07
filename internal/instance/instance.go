@@ -25,6 +25,10 @@ type Instance struct {
 	MaxFPS          int      `yaml:"max_fps"`
 	ExtraFlags      []string `yaml:"extra_flags"`
 	SystemdUser     string   `yaml:"systemd_user"`
+	// PeriodicRestart is a systemd OnUnitActiveSec interval (e.g. "6h", "1d").
+	// When non-empty, a companion .timer unit is installed that restarts the
+	// service on this schedule. Empty string means no periodic restart.
+	PeriodicRestart string `yaml:"periodic_restart,omitempty"`
 }
 
 // MetaPath returns the path to rsm.yaml inside the install directory.
@@ -60,6 +64,16 @@ func (i *Instance) ServiceUnitPath() string {
 // SystemdServiceName returns the systemd service name for this instance.
 func (i *Instance) SystemdServiceName() string {
 	return fmt.Sprintf("rsm-%s.service", i.Name)
+}
+
+// SystemdTimerName returns the systemd timer unit name for periodic restarts.
+func (i *Instance) SystemdTimerName() string {
+	return fmt.Sprintf("rsm-%s-restart.timer", i.Name)
+}
+
+// SystemdTimerServiceName returns the one-shot service unit name that the timer triggers.
+func (i *Instance) SystemdTimerServiceName() string {
+	return fmt.Sprintf("rsm-%s-restart.service", i.Name)
 }
 
 // ActiveConfigJSONPath returns the config.json path for the active configuration.

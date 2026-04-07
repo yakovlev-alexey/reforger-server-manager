@@ -88,7 +88,7 @@ func TestRequireErrorMessage(t *testing.T) {
 		t.Fatal("expected error when steamcmd not found")
 	}
 	msg := err.Error()
-	for _, want := range []string{"steamcmd", "apt", "steamcmd_linux.tar.gz"} {
+	for _, want := range []string{"steamcmd", "apt", "valvesoftware.com"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error message should mention %q, got: %s", want, msg)
 		}

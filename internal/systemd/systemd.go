@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strings"
 	"text/template"
 
 	"github.com/yakovlev-alex/reforger-server-manager/internal/instance"
 	"github.com/yakovlev-alex/reforger-server-manager/internal/steam"
 )
 
-//go:embed service.unit.tmpl
+//go:embed service.unit.tmpl restart.timer.tmpl restart.service.tmpl
 var templateFS embed.FS
 
 // unitParams holds template data for service.unit.tmpl
@@ -185,12 +186,13 @@ func sudoNotice(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, "  [sudo] %s\n", fmt.Sprintf(format, args...))
 }
 
-func systemctl(action, service string) error {
-	cmd := exec.Command("sudo", "systemctl", action, service)
+func systemctl(action string, args ...string) error {
+	cmdArgs := append([]string{"systemctl", action}, args...)
+	cmd := exec.Command("sudo", cmdArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("systemctl %s %s: %w", action, service, err)
+		return fmt.Errorf("systemctl %s %s: %w", action, strings.Join(args, " "), err)
 	}
 	return nil
 }
@@ -222,4 +224,111 @@ func runWithSudo(args ...string) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// ── Periodic restart timer ───────────────────────────────────────────────────
+
+// timerParams holds template data for the restart timer and service units.
+type timerParams struct {
+	InstanceName string
+	ServiceName  string
+	Interval     string
+}
+
+// GenerateRestartTimer renders the .timer unit for periodic restarts.
+func GenerateRestartTimer(inst *instance.Instance) (string, error) {
+	return renderTimerTemplate("restart.timer.tmpl", inst)
+}
+
+// GenerateRestartService renders the one-shot .service unit triggered by the timer.
+func GenerateRestartService(inst *instance.Instance) (string, error) {
+	return renderTimerTemplate("restart.service.tmpl", inst)
+}
+
+func renderTimerTemplate(name string, inst *instance.Instance) (string, error) {
+	tmplData, err := templateFS.ReadFile(name)
+	if err != nil {
+		return "", fmt.Errorf("reading template %s: %w", name, err)
+	}
+	tmpl, err := template.New(name).Parse(string(tmplData))
+	if err != nil {
+		return "", fmt.Errorf("parsing template %s: %w", name, err)
+	}
+	params := timerParams{
+		InstanceName: inst.Name,
+		ServiceName:  inst.SystemdServiceName(),
+		Interval:     inst.PeriodicRestart,
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, params); err != nil {
+		return "", fmt.Errorf("rendering template %s: %w", name, err)
+	}
+	return buf.String(), nil
+}
+
+// InstallRestartTimer installs the periodic restart .timer and its companion
+// one-shot .service unit, then enables and starts the timer.
+// Does nothing if inst.PeriodicRestart is empty.
+func InstallRestartTimer(inst *instance.Instance) error {
+	if inst.PeriodicRestart == "" {
+		return nil
+	}
+
+	timerContent, err := GenerateRestartTimer(inst)
+	if err != nil {
+		return err
+	}
+	svcContent, err := GenerateRestartService(inst)
+	if err != nil {
+		return err
+	}
+
+	timerPath := "/etc/systemd/system/" + inst.SystemdTimerName()
+	svcPath := "/etc/systemd/system/" + inst.SystemdTimerServiceName()
+
+	sudoNotice("writing %s", timerPath)
+	if err := writeFileWithSudo(timerPath, timerContent); err != nil {
+		return fmt.Errorf("installing timer unit: %w", err)
+	}
+	sudoNotice("writing %s", svcPath)
+	if err := writeFileWithSudo(svcPath, svcContent); err != nil {
+		return fmt.Errorf("installing restart service unit: %w", err)
+	}
+
+	sudoNotice("running systemctl daemon-reload")
+	if err := daemonReload(); err != nil {
+		return err
+	}
+
+	sudoNotice("systemctl enable --now %s", inst.SystemdTimerName())
+	return systemctl("enable", "--now", inst.SystemdTimerName())
+}
+
+// RemoveRestartTimer disables and removes the periodic restart timer units.
+func RemoveRestartTimer(inst *instance.Instance) error {
+	timerPath := "/etc/systemd/system/" + inst.SystemdTimerName()
+	svcPath := "/etc/systemd/system/" + inst.SystemdTimerServiceName()
+
+	// Disable/stop the timer if it exists — ignore errors (may not be installed)
+	_ = systemctl("disable", "--now", inst.SystemdTimerName())
+
+	sudoNotice("removing %s", timerPath)
+	_ = runWithSudo("rm", "-f", timerPath)
+	sudoNotice("removing %s", svcPath)
+	_ = runWithSudo("rm", "-f", svcPath)
+
+	sudoNotice("running systemctl daemon-reload")
+	return daemonReload()
+}
+
+// IsRestartTimerInstalled reports whether the periodic restart timer unit exists.
+func IsRestartTimerInstalled(inst *instance.Instance) bool {
+	_, err := os.Stat("/etc/systemd/system/" + inst.SystemdTimerName())
+	return err == nil
+}
+
+// IsRestartTimerActive reports whether the periodic restart timer is currently active.
+func IsRestartTimerActive(inst *instance.Instance) bool {
+	cmd := exec.Command("systemctl", "is-active", "--quiet", inst.SystemdTimerName())
+	return cmd.Run() == nil
 }

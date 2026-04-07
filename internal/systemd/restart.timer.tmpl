@@ -1,0 +1,10 @@
+[Unit]
+Description=Periodic restart timer for Arma Reforger Server - {{.InstanceName}}
+Requires={{.ServiceName}}
+
+[Timer]
+OnUnitActiveSec={{.Interval}}
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

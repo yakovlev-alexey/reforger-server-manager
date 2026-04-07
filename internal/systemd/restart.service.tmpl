@@ -1,0 +1,7 @@
+[Unit]
+Description=Periodic restart for Arma Reforger Server - {{.InstanceName}}
+After={{.ServiceName}}
+
+[Service]
+Type=oneshot
+ExecStart=/bin/systemctl restart {{.ServiceName}}

@@ -117,6 +117,11 @@ func runInstanceNew(nameArg string) error {
 		return err
 	}
 
+	periodicRestart, err := promptPeriodicRestart()
+	if err != nil {
+		return err
+	}
+
 	useExperimental := flagNewExperimental
 	if !flagNewExperimental {
 		if err := survey.AskOne(&survey.Confirm{
@@ -145,6 +150,7 @@ func runInstanceNew(nameArg string) error {
 		MaxFPS:          maxFPS,
 		ExtraFlags:      extraFlagsChoices,
 		SystemdUser:     systemUser,
+		PeriodicRestart: periodicRestart,
 	}
 
 	// --- Save rsm.yaml + register ---
@@ -237,6 +243,14 @@ func runInstanceNew(nameArg string) error {
 			return nil
 		}
 		printSuccess("systemd unit installed: %s", inst.SystemdServiceName())
+
+		if inst.PeriodicRestart != "" {
+			if err := systemd.InstallRestartTimer(inst); err != nil {
+				printWarning("Could not install periodic restart timer: %v", err)
+			} else {
+				printSuccess("Periodic restart timer installed (%s interval).", inst.PeriodicRestart)
+			}
+		}
 	} else {
 		fmt.Println()
 		printNextStep("To set up autostart later, run:", "rsm enable")
@@ -338,12 +352,68 @@ func runInstanceDelete(_ *cobra.Command, _ []string) error {
 
 	_ = systemd.Disable(inst)
 	_ = systemd.RemoveUnit(inst)
+	if inst.PeriodicRestart != "" || systemd.IsRestartTimerInstalled(inst) {
+		_ = systemd.RemoveRestartTimer(inst)
+	}
 
 	if err := instance.Delete(inst.Name, wipeFiles); err != nil {
 		return err
 	}
 	printSuccess("Instance %q removed.", inst.Name)
 	return nil
+}
+
+// promptPeriodicRestart asks the user whether to enable periodic restarts and,
+// if so, on what interval. Returns the interval string (e.g. "6h") or "".
+func promptPeriodicRestart() (string, error) {
+	enablePeriodic := false
+	if err := survey.AskOne(&survey.Confirm{
+		Message: "Enable periodic automatic restarts?",
+		Default: false,
+		Help:    "Installs a systemd timer that restarts the server on a fixed schedule.",
+	}, &enablePeriodic); err != nil {
+		return "", err
+	}
+	if !enablePeriodic {
+		return "", nil
+	}
+
+	intervalOptions := []string{
+		"6h  — every 6 hours",
+		"12h — every 12 hours",
+		"1d  — once a day",
+		"2d  — every 2 days",
+		"Custom (enter manually)",
+	}
+	choice := intervalOptions[1] // default: 12h
+	if err := survey.AskOne(&survey.Select{
+		Message: "Restart interval:",
+		Options: intervalOptions,
+		Default: intervalOptions[1],
+		Help:    "How often the server should be automatically restarted.",
+	}, &choice); err != nil {
+		return "", err
+	}
+
+	switch {
+	case strings.HasPrefix(choice, "6h"):
+		return "6h", nil
+	case strings.HasPrefix(choice, "12h"):
+		return "12h", nil
+	case strings.HasPrefix(choice, "1d"):
+		return "1d", nil
+	case strings.HasPrefix(choice, "2d"):
+		return "2d", nil
+	default:
+		interval := ""
+		if err := survey.AskOne(&survey.Input{
+			Message: "Restart interval (systemd time span, e.g. 6h, 12h, 1d):",
+			Help:    "Use systemd time span format: Nh for hours, Nd for days. E.g. '6h', '12h', '1d'.",
+		}, &interval, survey.WithValidator(survey.Required)); err != nil {
+			return "", err
+		}
+		return strings.TrimSpace(interval), nil
+	}
 }
 
 func runInstanceStatus(_ *cobra.Command, args []string) error {
@@ -366,15 +436,27 @@ func runInstanceStatus(_ *cobra.Command, args []string) error {
 		branch = color.YellowString("experimental")
 	}
 
+	periodicRestartStr := "disabled"
+	if inst.PeriodicRestart != "" {
+		timerStatus := "not installed"
+		if systemd.IsRestartTimerActive(inst) {
+			timerStatus = color.GreenString("active")
+		} else if systemd.IsRestartTimerInstalled(inst) {
+			timerStatus = color.YellowString("installed, not active")
+		}
+		periodicRestartStr = fmt.Sprintf("every %s (%s)", inst.PeriodicRestart, timerStatus)
+	}
+
 	fmt.Println(color.HiCyanString("Instance: %s", inst.Name))
-	fmt.Printf("  Install dir:     %s\n", inst.InstallDir)
-	fmt.Printf("  Branch:          %s\n", branch)
-	fmt.Printf("  Active config:   %s\n", inst.ActiveConfig)
-	fmt.Printf("  Max FPS:         %d\n", inst.MaxFPS)
-	fmt.Printf("  Extra flags:     %s\n", strings.Join(inst.ExtraFlags, " "))
-	fmt.Printf("  Update on start: %v\n", inst.UpdateOnRestart)
-	fmt.Printf("  Systemd user:    %s\n", inst.SystemdUser)
-	fmt.Printf("  Service name:    %s\n", inst.SystemdServiceName())
+	fmt.Printf("  Install dir:      %s\n", inst.InstallDir)
+	fmt.Printf("  Branch:           %s\n", branch)
+	fmt.Printf("  Active config:    %s\n", inst.ActiveConfig)
+	fmt.Printf("  Max FPS:          %d\n", inst.MaxFPS)
+	fmt.Printf("  Extra flags:      %s\n", strings.Join(inst.ExtraFlags, " "))
+	fmt.Printf("  Update on start:  %v\n", inst.UpdateOnRestart)
+	fmt.Printf("  Periodic restart: %s\n", periodicRestartStr)
+	fmt.Printf("  Systemd user:     %s\n", inst.SystemdUser)
+	fmt.Printf("  Service name:     %s\n", inst.SystemdServiceName())
 	fmt.Println()
 
 	configs, _ := inst.ListConfigs()

@@ -119,7 +119,8 @@ func createConfigWizard(inst *instance.Instance, configName string) error {
 	return configFullWizard(inst, configName)
 }
 
-// cloneConfig copies an existing configuration's config.json to a new name
+// cloneConfig copies an existing configuration's config.json to a new name,
+// strips mods by default (user is prompted to provide mods separately),
 // and offers to open it in the editor.
 func cloneConfig(inst *instance.Instance, sourceName, newName string) error {
 	sourcePath := inst.ConfigJSONPath(sourceName)
@@ -128,18 +129,32 @@ func cloneConfig(inst *instance.Instance, sourceName, newName string) error {
 		return fmt.Errorf("reading source config %q: %w", sourceName, err)
 	}
 
-	// Parse so we can report what was copied
-	var sourceCfg rsmconfig.ServerConfig
-	if err := json.Unmarshal(data, &sourceCfg); err != nil {
+	// Parse so we can report what was copied and manipulate mods
+	var newCfg rsmconfig.ServerConfig
+	if err := json.Unmarshal(data, &newCfg); err != nil {
 		return fmt.Errorf("parsing source config: %w", err)
 	}
+
+	sourceModsCount := len(newCfg.Game.Mods)
+
+	// Mods are NOT copied by default — prompt the user
+	newCfg.Game.Mods = []rsmconfig.Mod{}
+	mods, err := promptMods()
+	if err != nil {
+		return err
+	}
+	newCfg.Game.Mods = mods
 
 	if err := instance.EnsureConfigDirs(inst, newName); err != nil {
 		return fmt.Errorf("creating config directories: %w", err)
 	}
 
 	newPath := inst.ConfigJSONPath(newName)
-	if err := os.WriteFile(newPath, data, 0o644); err != nil {
+	jsonData, err := json.MarshalIndent(newCfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling config: %w", err)
+	}
+	if err := os.WriteFile(newPath, jsonData, 0o644); err != nil {
 		return fmt.Errorf("writing config.json: %w", err)
 	}
 
@@ -151,12 +166,15 @@ func cloneConfig(inst *instance.Instance, sourceName, newName string) error {
 	printSuccess("Configuration %q created from %q.", newName, sourceName)
 	fmt.Println()
 	fmt.Println("  Copied settings:")
-	fmt.Printf("    Server name:  %s\n", sourceCfg.Game.Name)
-	fmt.Printf("    Bind address: %s:%d\n", sourceCfg.BindAddress, sourceCfg.BindPort)
-	fmt.Printf("    Max players:  %d\n", sourceCfg.Game.MaxPlayers)
-	fmt.Printf("    Scenario:     %s\n", sourceCfg.Game.ScenarioID)
-	if len(sourceCfg.Game.Mods) > 0 {
-		fmt.Printf("    Mods:         %d mod(s)\n", len(sourceCfg.Game.Mods))
+	fmt.Printf("    Server name:  %s\n", newCfg.Game.Name)
+	fmt.Printf("    Bind address: %s:%d\n", newCfg.BindAddress, newCfg.BindPort)
+	fmt.Printf("    Max players:  %d\n", newCfg.Game.MaxPlayers)
+	fmt.Printf("    Scenario:     %s\n", newCfg.Game.ScenarioID)
+	if sourceModsCount > 0 {
+		fmt.Printf("    Mods (source): %d mod(s) — not copied\n", sourceModsCount)
+	}
+	if len(mods) > 0 {
+		fmt.Printf("    Mods (new):    %d mod(s)\n", len(mods))
 	}
 	fmt.Println()
 	fmt.Printf("  Config file: %s\n", newPath)
@@ -299,6 +317,12 @@ func configFullWizard(inst *instance.Instance, configName string) error {
 		}
 	}
 
+	// Mods
+	mods, err := promptMods()
+	if err != nil {
+		return err
+	}
+
 	// Build and write config
 	serverCfg := rsmconfig.DefaultServerConfig(
 		serverName, bindAddress, publicAddress,
@@ -306,6 +330,7 @@ func configFullWizard(inst *instance.Instance, configName string) error {
 		adminPassword, gamePassword,
 	)
 	serverCfg.Game.ScenarioID = scenarioID
+	serverCfg.Game.Mods = mods
 
 	if err := instance.EnsureConfigDirs(inst, configName); err != nil {
 		return fmt.Errorf("creating config directories: %w", err)
@@ -328,7 +353,7 @@ func configFullWizard(inst *instance.Instance, configName string) error {
 	printSuccess("Configuration %q created and set as active.", configName)
 	fmt.Printf("  Config file: %s\n", configPath)
 	fmt.Println()
-        fmt.Printf("  See official documentation for configuration details: https://community.bistudio.com/wiki/Arma_Reforger:Server_Config")
+	fmt.Printf("  See official documentation for configuration details: https://community.bistudio.com/wiki/Arma_Reforger:Server_Config")
 	fmt.Println()
 
 	openEditor := false
@@ -546,6 +571,40 @@ func runConfigDelete(_ *cobra.Command, args []string) error {
 	}
 	printSuccess("Configuration %q deleted.", configName)
 	return nil
+}
+
+// promptMods asks the user to optionally paste a JSON mods array.
+// It prints the documentation link, then prompts for input.
+// An empty answer (the default) means no mods / skip.
+// Returns the parsed mods slice, or an error if the JSON is invalid.
+func promptMods() ([]rsmconfig.Mod, error) {
+	fmt.Println()
+	fmt.Println("  Mods configuration reference:")
+	fmt.Printf("    %s\n", color.CyanString("https://community.bistudio.com/wiki/Arma_Reforger:Server_Config#mods"))
+	fmt.Println()
+	fmt.Println("  Expected format (paste the \"mods\" array value, e.g.):")
+	fmt.Println(`    [{"modId":"59FAFF1B71E98240","name":"My Mod"},{"modId":"...","name":"..."}]`)
+	fmt.Println()
+
+	modsJSON := ""
+	if err := survey.AskOne(&survey.Input{
+		Message: "Paste mods JSON array (leave blank to skip):",
+		Default: "",
+		Help:    "Paste the JSON array for the \"mods\" field from the server config. Leave blank for no mods.",
+	}, &modsJSON); err != nil {
+		return nil, err
+	}
+
+	modsJSON = strings.TrimSpace(modsJSON)
+	if modsJSON == "" || modsJSON == "[]" {
+		return []rsmconfig.Mod{}, nil
+	}
+
+	var mods []rsmconfig.Mod
+	if err := json.Unmarshal([]byte(modsJSON), &mods); err != nil {
+		return nil, fmt.Errorf("invalid mods JSON: %w\n  Hint: expected a JSON array like [{\"modId\":\"...\",\"name\":\"...\"}]", err)
+	}
+	return mods, nil
 }
 
 // openInEditor opens a file in the user's $EDITOR (falling back to vi/nano).

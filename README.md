@@ -1,6 +1,12 @@
 # rsm — Reforger Server Manager
 
-A CLI tool for managing Arma Reforger dedicated server instances on Linux.
+Create and manage Arma Reforger dedicated servers on Linux with a simple CLI tool.
+
+## Features
+
+- Install and update stable or experimental server
+- Configure systemd service to enable autostart
+- Manage, edit and switch server configurations including mods and savegames
 
 ## Requirements
 
@@ -68,8 +74,6 @@ Then run `rsm` to see instance status and common commands, `rsm start` to start 
       config.json
       profile/
 ```
-
-The global instance registry lives at `~/.config/rsm/registry.yaml`. It is the only file stored outside the installation directory.
 
 The systemd unit is installed at `/etc/systemd/system/rsm-<name>.service`.
 

@@ -362,3 +362,46 @@ func TestResolveInstanceExplicitOverridesCWD(t *testing.T) {
 		t.Errorf("resolved = %q, want 'explicit'", resolved)
 	}
 }
+
+func TestPeriodicRestartRoundTrip(t *testing.T) {
+	setupHome(t)
+	installDir := t.TempDir()
+	inst := &instance.Instance{
+		Name:            "timer-test",
+		InstallDir:      installDir,
+		ActiveConfig:    "default",
+		MaxFPS:          60,
+		SystemdUser:     "steam",
+		PeriodicRestart: "12h",
+	}
+	if err := inst.Save(); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := instance.Register(inst); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	loaded, err := instance.Load("timer-test")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.PeriodicRestart != "12h" {
+		t.Errorf("PeriodicRestart = %q, want %q", loaded.PeriodicRestart, "12h")
+	}
+}
+
+func TestPeriodicRestartEmpty(t *testing.T) {
+	setupHome(t)
+	// An instance without PeriodicRestart set should load with empty string
+	inst := makeInstance(t, "no-timer")
+	if inst.PeriodicRestart != "" {
+		t.Errorf("PeriodicRestart should default to empty, got %q", inst.PeriodicRestart)
+	}
+	loaded, err := instance.Load("no-timer")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if loaded.PeriodicRestart != "" {
+		t.Errorf("loaded PeriodicRestart should be empty, got %q", loaded.PeriodicRestart)
+	}
+}

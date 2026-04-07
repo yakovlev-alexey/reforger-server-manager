@@ -189,3 +189,77 @@ func TestGenerateUnit_StableNoBetaFlag(t *testing.T) {
 		t.Error("stable unit should use the stable app ID (1874900) in ExecStartPre")
 	}
 }
+
+func TestGenerateRestartTimer_Basic(t *testing.T) {
+	inst := setupInstance(t)
+	inst.PeriodicRestart = "6h"
+
+	content, err := systemd.GenerateRestartTimer(inst)
+	if err != nil {
+		t.Fatalf("GenerateRestartTimer: %v", err)
+	}
+
+	if !strings.Contains(content, "[Timer]") {
+		t.Error("timer unit should contain [Timer] section")
+	}
+	if !strings.Contains(content, "OnUnitActiveSec=6h") {
+		t.Error("timer unit should contain OnUnitActiveSec=6h")
+	}
+	if !strings.Contains(content, "rsm-testserver.service") {
+		t.Error("timer unit should reference the service")
+	}
+	if !strings.Contains(content, "[Install]") {
+		t.Error("timer unit should contain [Install] section")
+	}
+	if !strings.Contains(content, "timers.target") {
+		t.Error("timer unit should be wanted by timers.target")
+	}
+}
+
+func TestGenerateRestartService_Basic(t *testing.T) {
+	inst := setupInstance(t)
+	inst.PeriodicRestart = "12h"
+
+	content, err := systemd.GenerateRestartService(inst)
+	if err != nil {
+		t.Fatalf("GenerateRestartService: %v", err)
+	}
+
+	if !strings.Contains(content, "[Service]") {
+		t.Error("restart service unit should contain [Service] section")
+	}
+	if !strings.Contains(content, "Type=oneshot") {
+		t.Error("restart service should be Type=oneshot")
+	}
+	if !strings.Contains(content, "rsm-testserver.service") {
+		t.Error("restart service should reference the main service")
+	}
+	if !strings.Contains(content, "systemctl restart") {
+		t.Error("restart service should call systemctl restart")
+	}
+}
+
+func TestGenerateRestartTimer_DifferentIntervals(t *testing.T) {
+	cases := []string{"6h", "12h", "1d", "2d", "3h30min"}
+	inst := setupInstance(t)
+	for _, interval := range cases {
+		inst.PeriodicRestart = interval
+		content, err := systemd.GenerateRestartTimer(inst)
+		if err != nil {
+			t.Fatalf("GenerateRestartTimer(%s): %v", interval, err)
+		}
+		if !strings.Contains(content, "OnUnitActiveSec="+interval) {
+			t.Errorf("timer unit should contain OnUnitActiveSec=%s", interval)
+		}
+	}
+}
+
+func TestSystemdTimerName(t *testing.T) {
+	inst := setupInstance(t)
+	if inst.SystemdTimerName() != "rsm-testserver-restart.timer" {
+		t.Errorf("unexpected timer name: %s", inst.SystemdTimerName())
+	}
+	if inst.SystemdTimerServiceName() != "rsm-testserver-restart.service" {
+		t.Errorf("unexpected timer service name: %s", inst.SystemdTimerServiceName())
+	}
+}
