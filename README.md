@@ -20,15 +20,6 @@ chmod +x rsm
 sudo mv rsm /usr/local/bin/rsm
 ```
 
-### Build from source
-
-```bash
-git clone https://github.com/yakovlev-alex/reforger-server-manager
-cd reforger-server-manager
-make build
-sudo cp dist/rsm /usr/local/bin/rsm
-```
-
 ---
 
 ## Quick start
@@ -54,6 +45,8 @@ The wizard will ask for:
 At the end you will have Arma Reforger Server ready to run.
 
 Then run `rsm` to see instance status and common commands, `rsm start` to start the server manually or `rsm enable` to enable autostart. 
+
+> See [official documentation](https://community.bistudio.com/wiki/Arma_Reforger:Server_Hosting) for installation details.
 
 ---
 

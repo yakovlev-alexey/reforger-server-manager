@@ -161,6 +161,8 @@ func cloneConfig(inst *instance.Instance, sourceName, newName string) error {
 	fmt.Println()
 	fmt.Printf("  Config file: %s\n", newPath)
 	fmt.Println()
+	fmt.Printf("  See official documentation for configuration details: https://community.bistudio.com/wiki/Arma_Reforger:Server_Config")
+	fmt.Println()
 
 	openEditor := false
 	if err := survey.AskOne(&survey.Confirm{
@@ -325,6 +327,8 @@ func configFullWizard(inst *instance.Instance, configName string) error {
 	}
 	printSuccess("Configuration %q created and set as active.", configName)
 	fmt.Printf("  Config file: %s\n", configPath)
+	fmt.Println()
+        fmt.Printf("  See official documentation for configuration details: https://community.bistudio.com/wiki/Arma_Reforger:Server_Config")
 	fmt.Println()
 
 	openEditor := false
