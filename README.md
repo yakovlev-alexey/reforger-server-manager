@@ -43,10 +43,11 @@ The wizard will ask for:
 3. OS user to run the server as (default: current user)
 4. Max FPS (default: `60`)
 5. Extra launch flags (pre-selects `-loadSessionSave`, `-backendLocalStorage`)
-6. Stable or experimental server build
-7. Server configuration (name, ports, max players, admin password, scenario)
-8. Whether to download server files now
-9. Whether to install the systemd unit and enable autostart
+6. Periodic automatic restarts (disabled by default; choose 6h, 12h, 1d, 2d or custom)
+7. Stable or experimental server build
+8. Server configuration (name, ports, max players, admin password, scenario)
+9. Whether to download server files now
+10. Whether to install the systemd unit and enable autostart
 
 At the end you will have Arma Reforger Server ready to run.
 
@@ -75,7 +76,7 @@ Then run `rsm` to see instance status and common commands, `rsm start` to start 
       profile/
 ```
 
-The systemd unit is installed at `/etc/systemd/system/rsm-<name>.service`.
+The systemd unit is installed at `/etc/systemd/system/rsm-<name>.service`. When periodic restarts are enabled, two additional units are installed: `rsm-<name>-restart.timer` and `rsm-<name>-restart.service`.
 
 ---
 
@@ -165,6 +166,29 @@ rsm config delete modded
 
 ---
 
+### `rsm edit`
+
+Interactively edit instance-level settings. Presents a multi-select menu; only the fields you choose are changed.
+
+```bash
+rsm edit
+```
+
+**Editable options:**
+
+| Option | Description |
+|---|---|
+| Max FPS | Server tick rate passed as `-maxFPS` |
+| Extra launch flags | Multi-select from known flags; custom flags are preserved |
+| Periodic restart | Enable/disable and set the restart interval (e.g. `6h`, `12h`, `1d`) |
+| Update on restart | Toggle steamcmd update before each restart |
+| Experimental branch | Switch between stable and experimental builds |
+| Systemd service user | OS user the server process runs as |
+
+After saving, the systemd unit (and restart timer if applicable) are reinstalled automatically. If the server is running, a `rsm restart` hint is printed.
+
+---
+
 ### `rsm start` / `rsm stop` / `rsm restart`
 
 Control the server via systemd. `rsm start` and `rsm restart` automatically install the systemd unit if it is not already present (requires sudo).
@@ -190,7 +214,7 @@ rsm disable
 
 ### `rsm status`
 
-Show instance details and the live systemd service status.
+Show instance details and the live systemd service status. Includes the periodic restart interval and timer state when configured.
 
 ```bash
 rsm status
@@ -247,7 +271,7 @@ rsm service enable     # same as rsm enable
 rsm service disable    # same as rsm disable
 ```
 
-Run `rsm service install` after changing instance settings (max FPS, extra flags) to push the updated unit to systemd.
+Use `rsm edit` to change instance settings (max FPS, extra flags, periodic restart, etc.) — it reinstalls the unit automatically. Use `rsm service install` to force-reinstall the unit without changing any settings.
 
 ---
 
@@ -313,4 +337,11 @@ Services are named `rsm-<instance-name>.service`. For an instance named `main`:
 ```bash
 systemctl status rsm-main.service
 journalctl -u rsm-main.service -f
+```
+
+When periodic restarts are enabled, a timer and its companion one-shot service are also installed:
+
+```bash
+systemctl status rsm-main-restart.timer    # check timer state and next trigger
+systemctl list-timers rsm-main-restart.timer
 ```

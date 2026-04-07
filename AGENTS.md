@@ -23,6 +23,31 @@ steamcmd is detected from PATH and common locations on every invocation.
 
 ---
 
+## Keeping README.md up to date
+
+**README.md must be updated as part of every change that affects user-visible behaviour.**
+
+This is not optional. After any of the following, update `README.md` before considering the task done:
+
+- A new command or subcommand is added or removed
+- An existing command's flags, prompts, or output change
+- The `rsm init` wizard gains or loses a step
+- The on-disk layout changes (new files, new directories, new systemd units)
+- A concept (instance, configuration, registry) is renamed or redefined
+- The `Instance` struct gains or loses a field that users interact with
+
+**What to update:**
+
+- The feature bullet list under `## Features` if a major capability was added
+- The step list under `## Quick start` → `rsm init` if the wizard changed
+- The relevant `### rsm <command>` section — add it if new, edit it if changed
+- The `## Concepts` layout diagram if on-disk paths changed
+- The `## Systemd service name` section if new unit types were introduced
+
+The README is the user-facing contract. Keep it accurate.
+
+---
+
 ## Repository layout
 
 ```
@@ -31,11 +56,12 @@ cmd/rsm/              # CLI entrypoint — all Cobra commands live here
   root.go             # root command, print helpers, instance/registry view
   instance.go         # rsm init, rsm delete
   config_cmd.go       # rsm config new/list/edit/use/delete
+  edit.go             # rsm edit (interactive instance option editor)
   install.go          # rsm install, rsm update; findSteamCMD() helper
   lifecycle.go        # rsm start/stop/restart/enable/disable/status
   logs.go             # rsm logs
   service.go          # rsm service install/enable/disable/status
-  helpers.go          # isInstanceRunning(), regenerateUnit()
+  helpers.go          # isInstanceRunning(), regenerateUnit(), syncRestartTimer()
 
 internal/config/      # Arma Reforger server config schema
   server.go           # ServerConfig struct (maps to config.json), DefaultServerConfig()
@@ -54,8 +80,13 @@ internal/steam/       # steamcmd wrapper
 internal/systemd/     # systemd unit management
   systemd.go          # GenerateUnit(), InstallUnit(), ReinstallUnit(), IsInstalled(),
                       # EnsureInstalled(), RemoveUnit(), Start/Stop/Restart/Enable/Disable,
-                      # IsActive(), IsEnabled(), Status(), sudoNotice()
-  service.unit.tmpl   # Go template for the systemd unit file (embedded via go:embed)
+                      # IsActive(), IsEnabled(), Status(), sudoNotice(),
+                      # GenerateRestartTimer(), GenerateRestartService(),
+                      # InstallRestartTimer(), RemoveRestartTimer(),
+                      # IsRestartTimerInstalled(), IsRestartTimerActive()
+  service.unit.tmpl   # Go template for the systemd service unit (embedded via go:embed)
+  restart.timer.tmpl  # Go template for the periodic restart .timer unit
+  restart.service.tmpl # Go template for the periodic restart one-shot .service unit
   systemd_test.go
 
 internal/logs/        # journalctl streaming
@@ -115,6 +146,8 @@ go build -ldflags="-X main.version=v1.2.3" ./cmd/rsm
 
 /etc/systemd/system/
   rsm-<name>.service                  # installed by rsm service install / rsm start
+  rsm-<name>-restart.timer            # installed when PeriodicRestart is set
+  rsm-<name>-restart.service          # one-shot service triggered by the timer
 ```
 
 ---
