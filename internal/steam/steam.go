@@ -57,15 +57,15 @@ func Require() (string, error) {
 
 Install it first:
 
-  Debian / Ubuntu:
+  Ubuntu:
     sudo add-apt-repository multiverse
     sudo apt update && sudo apt install steamcmd
 
-  Other Linux (manual):
-    mkdir ~/steamcmd && cd ~/steamcmd
-    curl -O https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz
-    tar -xzf steamcmd_linux.tar.gz
-    ./steamcmd.sh +quit
+  Debian:
+    sudo apt update; sudo apt install software-properties-common; sudo apt-add-repository non-free; sudo dpkg --add-architecture i386; sudo apt update
+    sudo apt install steamcmd
+
+  For other distributions see official documentation: https://developer.valvesoftware.com/wiki/SteamCMD#Package_From_Repositories
 
 Then re-run this command.`)
 }
