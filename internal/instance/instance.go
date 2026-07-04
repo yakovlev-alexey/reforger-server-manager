@@ -56,6 +56,11 @@ func (i *Instance) ProfileDir(configName string) string {
 	return filepath.Join(i.ConfigDir(configName), "profile")
 }
 
+// AddonsDir returns the addons directory for a named configuration.
+func (i *Instance) AddonsDir(configName string) string {
+	return filepath.Join(i.ConfigDir(configName), "addons")
+}
+
 // ServiceUnitPath returns the path to the generated systemd unit file copy.
 func (i *Instance) ServiceUnitPath() string {
 	return filepath.Join(i.InstallDir, serviceUnitFile)
@@ -123,11 +128,13 @@ func (i *Instance) Save() error {
 	return os.WriteFile(i.MetaPath(), data, 0o644)
 }
 
-// EnsureConfigDirs creates the configuration and profile directories for a named config.
+// EnsureConfigDirs creates the per-config profile and addons directories.
 func EnsureConfigDirs(inst *Instance, configName string) error {
-	profileDir := inst.ProfileDir(configName)
-	if err := os.MkdirAll(profileDir, 0o755); err != nil {
+	if err := os.MkdirAll(inst.ProfileDir(configName), 0o755); err != nil {
 		return fmt.Errorf("creating profile dir: %w", err)
+	}
+	if err := os.MkdirAll(inst.AddonsDir(configName), 0o755); err != nil {
+		return fmt.Errorf("creating addons dir: %w", err)
 	}
 	return nil
 }

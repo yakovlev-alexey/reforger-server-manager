@@ -509,6 +509,9 @@ func runConfigUse(_ *cobra.Command, args []string) error {
 
 	oldConfig := inst.ActiveConfig
 	inst.ActiveConfig = newConfig
+	if err := ensureActiveConfigDirs(inst); err != nil {
+		return fmt.Errorf("ensuring config directories: %w", err)
+	}
 	if err := inst.Save(); err != nil {
 		return fmt.Errorf("saving instance: %w", err)
 	}
@@ -556,7 +559,7 @@ func runConfigDelete(_ *cobra.Command, args []string) error {
 
 	confirm := false
 	if err := survey.AskOne(&survey.Confirm{
-		Message: fmt.Sprintf("Delete configuration %q and its profile directory?", configName),
+		Message: fmt.Sprintf("Delete configuration %q and its data directory?", configName),
 		Default: false,
 	}, &confirm); err != nil {
 		return err

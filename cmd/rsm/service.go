@@ -65,6 +65,9 @@ func runServiceInstall(_ *cobra.Command, _ []string) error {
 	if inst.ActiveConfig == "" {
 		return fmt.Errorf("no active configuration set; run 'rsm config new' first")
 	}
+	if err := ensureActiveConfigDirs(inst); err != nil {
+		return fmt.Errorf("ensuring config directories: %w", err)
+	}
 
 	steamcmdPath := findSteamCMD()
 

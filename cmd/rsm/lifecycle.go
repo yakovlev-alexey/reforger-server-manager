@@ -67,6 +67,9 @@ func runStart(_ *cobra.Command, _ []string) error {
 	if inst.ActiveConfig == "" {
 		return fmt.Errorf("no active configuration set; run 'rsm config new' first")
 	}
+	if err := ensureActiveConfigDirs(inst); err != nil {
+		return fmt.Errorf("ensuring config directories: %w", err)
+	}
 
 	// Ensure the unit file is installed before trying to start.
 	// This handles the case where the user declined during rsm init or is
@@ -117,6 +120,9 @@ func runRestart(_ *cobra.Command, _ []string) error {
 	}
 	if inst.ActiveConfig == "" {
 		return fmt.Errorf("no active configuration set; run 'rsm config new' first")
+	}
+	if err := ensureActiveConfigDirs(inst); err != nil {
+		return fmt.Errorf("ensuring config directories: %w", err)
 	}
 
 	steamcmdPath := findSteamCMD()

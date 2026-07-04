@@ -10,6 +10,16 @@ func isInstanceRunning(inst *instance.Instance) bool {
 	return systemd.IsActive(inst)
 }
 
+// ensureActiveConfigDirs recreates the active config's runtime directories when
+// they are missing, which lets older configs created before new directory
+// requirements continue working.
+func ensureActiveConfigDirs(inst *instance.Instance) error {
+	if inst.ActiveConfig == "" {
+		return nil
+	}
+	return instance.EnsureConfigDirs(inst, inst.ActiveConfig)
+}
+
 // regenerateUnit re-renders and reinstalls the systemd unit file for an instance.
 // It also syncs the periodic restart timer: installs it if PeriodicRestart is set,
 // removes it otherwise.

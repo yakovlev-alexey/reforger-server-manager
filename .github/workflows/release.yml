@@ -91,14 +91,14 @@ jobs:
 
             ### Linux (amd64)
             ```bash
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/rsm-linux-amd64 -o rsm
+            curl -fL https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/rsm-linux-amd64 -o rsm
             chmod +x rsm
             sudo mv rsm /usr/local/bin/rsm
             ```
 
             ### Linux (arm64)
             ```bash
-            curl -L https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/rsm-linux-arm64 -o rsm
+            curl -fL https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/rsm-linux-arm64 -o rsm
             chmod +x rsm
             sudo mv rsm /usr/local/bin/rsm
             ```

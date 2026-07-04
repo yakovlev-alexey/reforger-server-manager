@@ -21,7 +21,7 @@ Create and manage Arma Reforger dedicated servers on Linux with a simple CLI too
 Download the latest binary from [Releases](https://github.com/yakovlev-alex/reforger-server-manager/releases):
 
 ```bash
-curl -L https://github.com/yakovlev-alex/reforger-server-manager/releases/latest/download/rsm-linux-amd64 -o rsm
+curl -fL https://github.com/yakovlev-alex/reforger-server-manager/releases/latest/download/rsm-linux-amd64 -o rsm
 chmod +x rsm
 sudo mv rsm /usr/local/bin/rsm
 ```
@@ -61,7 +61,7 @@ Then run `rsm` to see instance status and common commands, `rsm start` to start 
 
 **Instance** — one server installation (the `ArmaReforgerServer` binary and its data files). Instance metadata is stored in `rsm.yaml` inside the installation directory.
 
-**Configuration** — a named `config.json` + `profile/` directory pair. One instance can have multiple configurations; exactly one is active at a time.
+**Configuration** — a named `config.json` plus per-config `profile/` and `addons/` directories. One instance can have multiple configurations; exactly one is active at a time.
 
 ```
 <install_dir>/
@@ -71,9 +71,11 @@ Then run `rsm` to see instance status and common commands, `rsm start` to start 
     vanilla/
       config.json
       profile/
+      addons/
     modded/
       config.json
       profile/
+      addons/
 ```
 
 The systemd unit is installed at `/etc/systemd/system/rsm-<name>.service`. When periodic restarts are enabled, two additional units are installed: `rsm-<name>-restart.timer` and `rsm-<name>-restart.service`.
@@ -158,7 +160,7 @@ rsm config use vanilla
 
 ### `rsm config delete`
 
-Delete a named configuration and its profile directory. The active configuration cannot be deleted — switch away first.
+Delete a named configuration and its per-config data directory (`config.json`, `profile/`, `addons/`). The active configuration cannot be deleted — switch away first.
 
 ```bash
 rsm config delete modded

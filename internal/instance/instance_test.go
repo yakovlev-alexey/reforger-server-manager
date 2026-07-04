@@ -249,6 +249,20 @@ func TestProfileDir(t *testing.T) {
 	}
 }
 
+func TestAddonsDir(t *testing.T) {
+	setupHome(t)
+	inst := makeInstance(t, "addonstest")
+
+	if err := instance.EnsureConfigDirs(inst, "vanilla"); err != nil {
+		t.Fatalf("EnsureConfigDirs: %v", err)
+	}
+
+	addonsDir := inst.AddonsDir("vanilla")
+	if _, err := os.Stat(addonsDir); err != nil {
+		t.Errorf("addons dir not created: %v", err)
+	}
+}
+
 func TestMetaPath(t *testing.T) {
 	setupHome(t)
 	inst := makeInstance(t, "meta")
